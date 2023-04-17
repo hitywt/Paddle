@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import copy
+import json
 import logging
 import numbers
 import os
@@ -217,6 +218,8 @@ class Engine:
         self._planned_mode = None
         self._dygraph_mode = False
         self._tuning = self._strategy.tuning
+        self._checkpoint_meta = {}
+        self._rng_state = None
 
         self.history = None
 
@@ -786,10 +789,46 @@ class Engine:
                 paddle.distributed.ParallelEnv().dev_id
             )
 
-        if self._strategy.seed:
+        def load_rng_state():
+            rng_state = self._checkpoint_meta.get("rng_state", None)
+            if rng_state is not None:
+                if "paddle_rng_state" not in rng_state:
+                    return False
+                paddle_rng_state = rng_state.get("paddle_rng_state", None)
+                paddle.set_rng_state(paddle_rng_state)
+
+                if "cuda_rng_state" not in rng_state:
+                    return False
+                cuda_rng_state = rng_state.get("cuda_rng_state")
+                paddle.set_cuda_rng_state(cuda_rng_state)
+
+                if "np_rng_state" not in rng_state:
+                    return False
+                np_rng_state = rng_state.get("np_rng_state")
+                np.random.set_state(np_rng_state)
+
+                if "random_rng_state" not in rng_state:
+                    return False
+                random_rng_state = rng_state.get("random_rng_state")
+                random.setstate(random_rng_state)
+
+                return True
+            return False
+
+        if self._strategy.seed and not load_rng_state():
             paddle.seed(self._strategy.seed + self._dp_ranks[0])
             np.random.seed(self._strategy.seed + self._dp_ranks[0])
             random.seed(self._strategy.seed + self._dp_ranks[0])
+            self._checkpoint_meta.update(
+                {
+                    "rng_state": {
+                        "paddle_rng_state": paddle.get_rng_state(),
+                        "cuda_rng_state": paddle.get_cuda_rng_state(),
+                        "np_rng_state": np.random.getstate(),
+                        "random_rng_state": random.getstate(),
+                    }
+                }
+            )
 
         dist_context = self._dist_contexts[mode]
         if self._dygraph_mode:
@@ -835,6 +874,9 @@ class Engine:
         log_freq=10,
         save_dir=None,
         save_freq=1,
+        save_checkpoint_every_n_step=None,
+        keep_checkpoint_max_num=1,
+        load_dir=None,
         valid_data=None,
         valid_sample_split=None,
         valid_freq=1,
@@ -909,6 +951,26 @@ class Engine:
                            epochs=2,
                            batch_size=64)
         """
+
+        def get_latest_checkpoint_prefix(load_dir):
+            # get latest checkpoint from all rank checkpoint
+            checkpoint_meta_path = os.path.join(
+                load_dir, "latest_checkpoint.txt"
+            )
+            if os.path.exists(checkpoint_meta_path):
+                with open(checkpoint_meta_path, "rb") as robj:
+                    self._checkpoint_meta = json.loads(robj.read())
+
+            rank_size = self._checkpoint_meta.get("rank_size", None)
+            file_path = auto_utils.get_latest_checkpoint_timestamp(
+                load_dir, rank_size
+            )
+            return file_path
+
+        if load_dir is not None:
+            latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
+            self.load(latest_checkpoint_prefix)
+
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
             train_data, train_sample_split, batch_size
@@ -938,10 +1000,13 @@ class Engine:
             steps=train_dataloader._steps,
             log_freq=log_freq,
             save_freq=save_freq,
+            save_checkpoint_every_n_step=save_checkpoint_every_n_step,
+            keep_checkpoint_max_num=keep_checkpoint_max_num,
             save_dir=save_dir,
             verbose=verbose,
             metrics=self._metrics_name(),
             acc_step=self._k_steps,
+            rng_state=self._rng_state,
         )
 
         cbks.on_begin('train')

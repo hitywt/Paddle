@@ -2350,3 +2350,69 @@ def is_dep_skip_op(op):
         return True
 
     return False
+
+
+def is_complete_checkpoint(file_list, rank_size, file_prefix="final"):
+    for rank in range(rank_size):
+        if f"{file_prefix}_serial.pdmodel" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdmodel" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdparams" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdattr" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdopt" not in file_list:
+            return False
+    return True
+
+
+def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
+    file_prefix = None
+    final_prefix = "final"
+    succ, rank = is_complete_checkpoint(file_list, rank_size, final_prefix)
+    if succ:
+        return final_prefix, None, f"dist{rank}"
+    for e in range(max_epoch - 1, -1, -1):
+        epoch_prefix = f"epoch{e}"
+        for s in range(max_step - 1, -1, -1):
+            step_prefix = f"step{s}"
+            file_prefix = f"{epoch_prefix}_{step_prefix}"
+            if is_complete_checkpoint(file_list, rank_size, file_prefix):
+                return file_prefix
+            else:
+                file_prefix = None
+    return file_prefix
+
+
+def _get_file_prefix(file_dir):
+    file_list = os.listdir(file_dir)
+    file_prefix_map = {}
+    for file_name in file_list:
+        file_name_split = file_name.split("_")
+        file_name_prefix = "_".join(file_name_split[:-1])
+        if file_name_prefix not in file_prefix_map:
+            file_prefix_map[file_name_prefix] = []
+        file_prefix_map[file_name_prefix].append(file_name)
+    return file_prefix_map
+
+
+def get_latest_checkpoint_timestamp(file_dir, rank_size):
+    file_prefix_map = _get_file_prefix(file_dir)
+    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list.sort(reverse=True)
+    for file_prefix in file_prefix_list:
+        file_paths = file_prefix_map[file_prefix]
+        if is_complete_checkpoint(file_paths, rank_size, file_prefix):
+            return file_prefix
+    return None
+
+
+def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
+    file_prefix_map = _get_file_prefix(file_dir)
+    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list.sort()
+    file_prefix_to_remove = file_prefix_list[:keep_checkpoint_max_num]
+    for file_prefix in file_prefix_to_remove:
+        value = file_prefix_map[file_prefix]
+        os.remove(os.path.join(file_dir, value))

@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import time
 
 import paddle
+import paddle.distributed.auto_parallel.utils as auto_utils
 from paddle.hapi.callbacks import (
     Callback,
     CallbackList,
@@ -36,9 +38,12 @@ def config_callbacks(
     log_freq=2,
     verbose=2,
     save_freq=1,
+    save_checkpoint_every_n_step=None,
+    keep_checkpoint_max_num=1,
     save_dir=None,
     metrics=None,
     acc_step=1,
+    rng_state=None,
     mode='train',
 ):
     cbks = callbacks or []
@@ -51,7 +56,15 @@ def config_callbacks(
         cbks = [LRSchedulerAuto()] + cbks
 
     if not any(isinstance(k, ModelCheckpoint) for k in cbks):
-        cbks = cbks + [ModelCheckpointAuto(save_freq, save_dir)]
+        cbks = cbks + [
+            ModelCheckpointAuto(
+                save_freq,
+                save_checkpoint_every_n_step,
+                keep_checkpoint_max_num,
+                rng_state,
+                save_dir,
+            )
+        ]
 
     if not any(isinstance(k, Profiler) for k in cbks) and verbose == 3:
         cbks = cbks + [Profiler(timer_only=True)]
@@ -65,7 +78,13 @@ def config_callbacks(
         if isinstance(k, LRScheduler):
             cbks[i] = LRSchedulerAuto(k.by_step, k.by_epoch)
         if isinstance(k, ModelCheckpoint):
-            cbks[i] = ModelCheckpointAuto(k.save_freq, k.save_dir)
+            cbks[i] = ModelCheckpointAuto(
+                k.save_freq,
+                save_checkpoint_every_n_step,
+                keep_checkpoint_max_num,
+                rng_state,
+                k.save_dir,
+            )
 
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
@@ -227,18 +246,114 @@ class Profiler(Callback):
 class ModelCheckpointAuto(ModelCheckpoint):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # model params for restore check between checkpoint and args
+        self._save_checkpoint_every_n_step = args.get(
+            "save_checkpoint_every_n_step", None
+        )
+        self._keep_checkpoint_max_num = args.get("keep_checkpoint_max_num", 1)
+        self._rng_state = args.get("rng_state", None)
+        self._rank_id = paddle.distributed.get_rank()
+        self._saved_checkpoint_ranks = 0
+        self._rank_size = paddle.distributed.get_world_size()
+        self._latest_checkpoint_dir = self.save_dir
+        self._checkpoint_meta = {
+            "rank_size": self._rank_size,
+            "max_epoch": None,
+            "max_step": None,
+            "keep_checkpoint_max_num": self._keep_checkpoint_max_num,
+            "current_checkpoint_paths": [],
+        }
+        if self._rng_state is not None:
+            self._checkpoint_meta.update({"rng_state": self._rng_state})
+        if self._save_checkpoint_every_n_step is not None:
+            self._checkpoint_meta.update(
+                {
+                    "save_checkpoint_every_n_step": self._save_checkpoint_every_n_step
+                }
+            )
+
+    @property
+    def get_epoch(self):
+        return self.params.get("epoch", 0)
+
+    @property
+    def get_step(self):
+        return self.params.get("step", 0)
+
+    @property
+    def get_keep_checkpoint_max_num(self):
+        return self._checkpoint_meta.get("keep_checkpoint_max_num", None)
+
+    @property
+    def get_rng_state(self):
+        return self.params.get("rng_state", None)
+
+    @property
+    def get_checkpoint_meta(self):
+        return self._checkpoint_meta
+
+    def _get_checkpoint_meta_path(self):
+        latest_ckpt_path = None
+        if self.save_dir:
+            latest_ckpt_path = os.path.join(
+                self.save_dir, "latest_checkpoint.txt"
+            )
+        assert latest_ckpt_path and os.path.isfile(
+            latest_ckpt_path
+        ), f"latest_ckpt_path: {latest_ckpt_path} not exists!"
+        return latest_ckpt_path
+
+    def _save_checkpoint_meta(self):
+        # 保存ckpt、dataloader状态数据
+        checkpoint_meta_path = self._get_checkpoint_meta_path()
+        with open(checkpoint_meta_path, "wb") as wobj:
+            wobj.write(f"{json.dumps(self._checkpoint_meta)}")
+        return True
+
+    @staticmethod
+    def _load_checkpoint_meta(self):
+        # 恢复ckpt、dataloader状态
+        checkpoint_meta_path = self._get_checkpoint_meta_path()
+        with open(checkpoint_meta_path, "rb") as robj:
+            self._checkpoint_meta = json.loads(robj.read())
+        return self.get_checkpoint_meta
 
     def _is_save(self):
         return self.model and self.save_dir
+
+    def on_train_batch_end(self, step, logs=None):
+        if (
+            self.is_save()
+            and (self.step + 1) % self._save_checkpoint_every_n_step == 0
+        ):
+
+            def get_time():
+                now = int(time.time())
+                return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
+
+            path = f"{self.save_dir}/{get_time()}_epoch{self.get_epoch}_step{self.get_step}"
+            print(f'save checkpoint at {os.path.abspath(path)}')
+            self.model.save(path)
+            if self._rank_id == 0:
+                self._save_checkpoint_meta()
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )
 
     def on_epoch_end(self, epoch, logs=None):
         if self._is_save() and (self.epoch + 1) % self.save_freq == 0:
             path = f'{self.save_dir}/epoch{epoch}'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )
 
     def on_train_end(self, logs=None):
         if self._is_save():
             path = f'{self.save_dir}/final'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )
