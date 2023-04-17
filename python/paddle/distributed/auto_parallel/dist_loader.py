@@ -79,6 +79,7 @@ class DistributedDataLoaderFromGenerator(DistributedDataLoaderBase):
         self.dp_ranks = data_parallel_rank
 
         if isinstance(dataset, IterableDataset):
+            print(f"debug engine fit data_size isinstance IterableDataset")
             self.dataset_kind = _DatasetKind.ITER
         else:
             self.dataset_kind = _DatasetKind.MAP
