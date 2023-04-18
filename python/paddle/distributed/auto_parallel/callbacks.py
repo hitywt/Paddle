@@ -17,6 +17,7 @@ import os
 import time
 
 import paddle
+import paddle.distributed.auto_parallel.utils as auto_utils
 from paddle.hapi.callbacks import (
     Callback,
     CallbackList,
@@ -280,6 +281,10 @@ class ModelCheckpointAuto(ModelCheckpoint):
         return self.params.get("step", 0)
 
     @property
+    def get_keep_checkpoint_max_num(self):
+        return self._checkpoint_meta.get("keep_checkpoint_max_num", None)
+
+    @property
     def get_rng_state(self):
         return self.params.get("rng_state", None)
 
@@ -331,16 +336,24 @@ class ModelCheckpointAuto(ModelCheckpoint):
             self.model.save(path)
             if self._rank_id == 0:
                 self._save_checkpoint_meta()
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )
 
     def on_epoch_end(self, epoch, logs=None):
         if self._is_save() and (self.epoch + 1) % self.save_freq == 0:
             path = f'{self.save_dir}/epoch{epoch}'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )
 
     def on_train_end(self, logs=None):
         if self._is_save():
             path = f'{self.save_dir}/final'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
-        # 更新ckpt和dataloader状态
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.get_keep_checkpoint_max_num
+            )

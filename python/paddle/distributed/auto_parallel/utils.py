@@ -2385,19 +2385,34 @@ def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
     return file_prefix
 
 
-def get_latest_checkpoint_timestamp(file_dir, rank_size):
+def _get_file_prefix(file_dir):
     file_list = os.listdir(file_dir)
     file_prefix_map = {}
     for file_name in file_list:
         file_name_split = file_name.split("_")
-        if file_name_split[0] not in file_prefix_map:
-            file_prefix_map[file_name_split[0]] = []
-        file_prefix_map[file_name_split[0]].append(file_name)
+        file_name_prefix = "_".join(file_name_split[:-1])
+        if file_name_prefix not in file_prefix_map:
+            file_prefix_map[file_name_prefix] = []
+        file_prefix_map[file_name_prefix].append(file_name)
+    return file_prefix_map
+
+
+def get_latest_checkpoint_timestamp(file_dir, rank_size):
+    file_prefix_map = _get_file_prefix(file_dir)
     file_prefix_list = file_prefix_map.keys()
     file_prefix_list.sort(reverse=True)
-
     for file_prefix in file_prefix_list:
         file_paths = file_prefix_map[file_prefix]
         if is_complete_checkpoint(file_paths, rank_size, file_prefix):
             return file_prefix
     return None
+
+
+def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
+    file_prefix_map = _get_file_prefix(file_dir)
+    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list.sort()
+    file_prefix_to_remove = file_prefix_list[:keep_checkpoint_max_num]
+    for file_prefix in file_prefix_to_remove:
+        value = file_prefix_map[file_prefix]
+        os.remove(os.path.join(file_dir, value))
