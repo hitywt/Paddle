@@ -15,6 +15,7 @@
 import copy
 import logging
 import os
+import shutil
 import threading
 import warnings
 from functools import reduce
@@ -2352,7 +2353,7 @@ def is_dep_skip_op(op):
     return False
 
 
-def is_complete_checkpoint(file_list, rank_size, file_prefix="final"):
+def is_complete_checkpoint(file_list, rank_size, file_prefix="default"):
     for rank in range(rank_size):
         if f"{file_prefix}_serial.pdmodel" not in file_list:
             return False
@@ -2385,10 +2386,19 @@ def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
     return file_prefix
 
 
-def _get_file_prefix(file_dir):
+def _get_checkpoint_directory(file_dir):
+    checkpoint_dir_list = os.listdir(file_dir)
+    checkpoint_dir_list = list(filter(lambda x: x != "latest_checkpoint.txt", checkpoint_dir_list))
+    if len(checkpoint_dir_list) == 0:
+        return None
+    return checkpoint_dir_list
+
+def _get_checkpoint_prefix(file_dir):
     file_list = os.listdir(file_dir)
     file_prefix_map = {}
     for file_name in file_list:
+        if file_name in ["rank_mapping.csv"]:
+            continue
         file_name_split = file_name.split("_")
         file_name_prefix = "_".join(file_name_split[:-1])
         if file_name_prefix not in file_prefix_map:
@@ -2398,21 +2408,26 @@ def _get_file_prefix(file_dir):
 
 
 def get_latest_checkpoint_timestamp(file_dir, rank_size):
-    file_prefix_map = _get_file_prefix(file_dir)
-    file_prefix_list = file_prefix_map.keys()
-    file_prefix_list.sort(reverse=True)
-    for file_prefix in file_prefix_list:
-        file_paths = file_prefix_map[file_prefix]
-        if is_complete_checkpoint(file_paths, rank_size, file_prefix):
-            return file_prefix
+    checkpoint_dir_list = _get_checkpoint_directory(file_dir)
+    if checkpoint_dir_list is None:
+        return None
+    checkpoint_dir_list.sort(reverse=True) 
+    for checkpoint_dir in checkpoint_dir_list:
+        checkpoint_dir_path = os.path.join(file_dir, checkpoint_dir)
+        checkpoint_prefix_map = _get_checkpoint_prefix(checkpoint_dir_path)
+        for prefix, files in checkpoint_prefix_map.items():
+            if is_complete_checkpoint(files, rank_size, "default"):
+                return os.path.join(checkpoint_dir_path, prefix)
     return None
 
-
 def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
-    file_prefix_map = _get_file_prefix(file_dir)
-    file_prefix_list = file_prefix_map.keys()
-    file_prefix_list.sort()
-    file_prefix_to_remove = file_prefix_list[:keep_checkpoint_max_num]
-    for file_prefix in file_prefix_to_remove:
-        value = file_prefix_map[file_prefix]
-        os.remove(os.path.join(file_dir, value))
+    checkpoint_dir_list = _get_checkpoint_directory(file_dir)
+    if checkpoint_dir_list is None or len(checkpoint_dir_list) <= keep_checkpoint_max_num:
+        return None
+    checkpoint_dir_list.sort(reverse=True)
+    print(f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
+    for checkpoint_dir in checkpoint_dir_list[keep_checkpoint_max_num:]:
+        rmdir = os.path.join(file_dir, checkpoint_dir)
+        shutil.rmtree(rmdir)
+        print(f"remove older directory: {rmdir}")
+    return True

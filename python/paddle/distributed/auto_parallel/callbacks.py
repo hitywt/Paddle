@@ -38,12 +38,10 @@ def config_callbacks(
     log_freq=2,
     verbose=2,
     save_freq=1,
-    save_checkpoint_every_n_step=None,
-    keep_checkpoint_max_num=1,
+    latest_checkpoint_meta=None,
     save_dir=None,
     metrics=None,
     acc_step=1,
-    rng_state=None,
     mode='train',
 ):
     cbks = callbacks or []
@@ -55,15 +53,11 @@ def config_callbacks(
     if not any(isinstance(k, LRScheduler) for k in cbks):
         cbks = [LRSchedulerAuto()] + cbks
 
+    print(f"debug config_callbacks save_dir: {save_dir}")
     if not any(isinstance(k, ModelCheckpoint) for k in cbks):
         cbks = cbks + [
-            ModelCheckpointAuto(
-                save_freq,
-                save_checkpoint_every_n_step,
-                keep_checkpoint_max_num,
-                rng_state,
-                save_dir,
-            )
+            #ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta }
+            ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
         ]
 
     if not any(isinstance(k, Profiler) for k in cbks) and verbose == 3:
@@ -78,13 +72,8 @@ def config_callbacks(
         if isinstance(k, LRScheduler):
             cbks[i] = LRSchedulerAuto(k.by_step, k.by_epoch)
         if isinstance(k, ModelCheckpoint):
-            cbks[i] = ModelCheckpointAuto(
-                k.save_freq,
-                save_checkpoint_every_n_step,
-                keep_checkpoint_max_num,
-                rng_state,
-                k.save_dir,
-            )
+            #cbks[i] = ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta })
+            cbks[i] = ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
 
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
@@ -245,115 +234,114 @@ class Profiler(Callback):
 
 class ModelCheckpointAuto(ModelCheckpoint):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        self._checkpoint_meta = kwargs.get("latest_checkpoint_meta", None)
+        print(f"debug callbacks args: {args}, kwargs: {kwargs}")
+        save_freq = kwargs.get("save_freq", 1)
+        save_dir = kwargs.get("save_dir", None)
+        if self._checkpoint_meta:
+            save_freq = self._checkpoint_meta.get("save_freq", 1)
+            save_dir = self._checkpoint_meta.get("save_dir", None)
+        super().__init__(save_freq=save_freq, save_dir=save_dir)
         # model params for restore check between checkpoint and args
-        self._save_checkpoint_every_n_step = args.get(
-            "save_checkpoint_every_n_step", None
-        )
-        self._keep_checkpoint_max_num = args.get("keep_checkpoint_max_num", 1)
-        self._rng_state = args.get("rng_state", None)
         self._rank_id = paddle.distributed.get_rank()
-        self._saved_checkpoint_ranks = 0
         self._rank_size = paddle.distributed.get_world_size()
         self._latest_checkpoint_dir = self.save_dir
-        self._checkpoint_meta = {
-            "rank_size": self._rank_size,
-            "max_epoch": None,
-            "max_step": None,
-            "keep_checkpoint_max_num": self._keep_checkpoint_max_num,
-            "current_checkpoint_paths": [],
-        }
-        if self._rng_state is not None:
-            self._checkpoint_meta.update({"rng_state": self._rng_state})
-        if self._save_checkpoint_every_n_step is not None:
-            self._checkpoint_meta.update(
-                {
-                    "save_checkpoint_every_n_step": self._save_checkpoint_every_n_step
-                }
-            )
 
     @property
-    def get_epoch(self):
-        return self.params.get("epoch", 0)
+    def epochs(self):
+        return self._checkpoint_meta.get("epochs", 0)
+
+    @epochs.setter
+    def epochs(self, value):
+        self._checkpoint_meta["epochs"] = value
 
     @property
-    def get_step(self):
-        return self.params.get("step", 0)
+    def steps(self):
+        return self._checkpoint_meta.get("steps", 0)
+
+    @steps.setter
+    def steps(self, value):
+        self._checkpoint_meta["steps"] = value
 
     @property
-    def get_keep_checkpoint_max_num(self):
+    def keep_checkpoint_max_num(self):
         return self._checkpoint_meta.get("keep_checkpoint_max_num", None)
 
     @property
-    def get_rng_state(self):
-        return self.params.get("rng_state", None)
+    def save_checkpoint_every_n_step(self):
+        return self._checkpoint_meta.get("save_checkpoint_every_n_step", None)
 
     @property
-    def get_checkpoint_meta(self):
-        return self._checkpoint_meta
+    def save_checkpoint_every_n_epoch(self):
+        return self._checkpoint_meta.get("save_checkpoint_every_n_epoch", None)
 
-    def _get_checkpoint_meta_path(self):
+    @property
+    def rng_state(self):
+        return self._checkpoint_meta.get("rng_state", NOne)
+
+    @property
+    def checkpoint_meta_path(self):
         latest_ckpt_path = None
         if self.save_dir:
             latest_ckpt_path = os.path.join(
                 self.save_dir, "latest_checkpoint.txt"
             )
-        assert latest_ckpt_path and os.path.isfile(
-            latest_ckpt_path
-        ), f"latest_ckpt_path: {latest_ckpt_path} not exists!"
         return latest_ckpt_path
 
-    def _save_checkpoint_meta(self):
+    def _save_checkpoint_meta(self, latest_checkpoint_path):
         # 保存ckpt、dataloader状态数据
-        checkpoint_meta_path = self._get_checkpoint_meta_path()
-        with open(checkpoint_meta_path, "wb") as wobj:
+        print(f"save checkpoint meta: {self._checkpoint_meta} path: {latest_checkpoint_path}")
+        self._checkpoint_meta["latest_checkpoint_path"] = latest_checkpoint_path
+        with open(self.checkpoint_meta_path, "w") as wobj:
+            print(f'debug checkpoint_meta: {self._checkpoint_meta}')
             wobj.write(f"{json.dumps(self._checkpoint_meta)}")
         return True
 
-    @staticmethod
     def _load_checkpoint_meta(self):
         # 恢复ckpt、dataloader状态
-        checkpoint_meta_path = self._get_checkpoint_meta_path()
-        with open(checkpoint_meta_path, "rb") as robj:
+        with open(self.checkpoint_meta_path, "rb") as robj:
             self._checkpoint_meta = json.loads(robj.read())
         return self.get_checkpoint_meta
 
     def _is_save(self):
         return self.model and self.save_dir
 
+    def _save_checkpoint(self, path):
+        self.model.save(path)
+        if self._rank_id == 0:
+            self._save_checkpoint_meta(path)
+        auto_utils.update_checkpoint_filelist(
+            self.save_dir, self.keep_checkpoint_max_num
+        )
+
+    def _get_timestamp(self):
+        now = int(time.time())
+        return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
+
     def on_train_batch_end(self, step, logs=None):
+        self.steps = step+1
         if (
-            self.is_save()
-            and (self.step + 1) % self._save_checkpoint_every_n_step == 0
+            self._is_save()
+            and self.save_checkpoint_every_n_step is not None
+            and self.steps % self.save_checkpoint_every_n_step == 0
         ):
-
-            def get_time():
-                now = int(time.time())
-                return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
-
-            path = f"{self.save_dir}/{get_time()}_epoch{self.get_epoch}_step{self.get_step}"
+            path = f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
-            self.model.save(path)
-            if self._rank_id == 0:
-                self._save_checkpoint_meta()
-            auto_utils.update_checkpoint_filelist(
-                self.save_dir, self.get_keep_checkpoint_max_num
-            )
+            self._save_checkpoint(path)
 
     def on_epoch_end(self, epoch, logs=None):
-        if self._is_save() and (self.epoch + 1) % self.save_freq == 0:
+        self.epochs = epoch+1
+        """
+        if self._is_save() and self.epochs % self.save_freq == 0:
             path = f'{self.save_dir}/epoch{epoch}'
             print(f'save checkpoint at {os.path.abspath(path)}')
-            self.model.save(path)
-            auto_utils.update_checkpoint_filelist(
-                self.save_dir, self.get_keep_checkpoint_max_num
-            )
+            self._save_checkpoint(path)
+        """
 
     def on_train_end(self, logs=None):
+        print(f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}")
         if self._is_save():
-            path = f'{self.save_dir}/final'
+            print(f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}")
+            path = f"{self.save_dir}/epoch{self.epochs-1}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
-            self.model.save(path)
-            auto_utils.update_checkpoint_filelist(
-                self.save_dir, self.get_keep_checkpoint_max_num
-            )
+            self._save_checkpoint(path)
