@@ -266,7 +266,8 @@ class ModelCheckpointAuto(ModelCheckpoint):
 
     def _save_checkpoint_meta(self):
         # 保存ckpt、dataloader状态数据
-        with open(self.checkpoint_meta_path, "wb") as wobj:
+        with open(self.checkpoint_meta_path, "w") as wobj:
+            print(f'debug checkpoint_meta: {self._checkpoint_meta}')
             wobj.write(f"{json.dumps(self._checkpoint_meta)}")
         return True
 
@@ -285,14 +286,15 @@ class ModelCheckpointAuto(ModelCheckpoint):
         if self._rank_id == 0:
             self._save_checkpoint_meta()
         auto_utils.update_checkpoint_filelist(
-            self.save_dir, self.get_keep_checkpoint_max_num
+            self.save_dir, self.keep_checkpoint_max_num
         )
 
     def on_train_batch_begin(self, step, logs=None):
         if step < self.init_step:
-            continue
+            return False
         self.step = step
         self._init_step = 0
+        return True
 
     def on_train_batch_end(self, step, logs=None):
         self.step = step if self.step == 0 else self.step + 1
@@ -312,9 +314,10 @@ class ModelCheckpointAuto(ModelCheckpoint):
 
     def on_epoch_begin(self, epoch, logs=None):
         if epoch < self._init_epoch:
-            continue
+            return False
         self.epoch = epoch
         self._init_epoch = 0
+        return True
 
     def on_epoch_end(self, epoch, logs=None):
         self.epoch = epoch if self.epoch == 0 else self.epoch + 1

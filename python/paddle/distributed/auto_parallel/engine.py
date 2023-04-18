@@ -1023,9 +1023,11 @@ class Engine:
         cbks.on_begin('train')
         for epoch in range(epochs):
             logs = {}
-            cbks.on_epoch_begin(epoch)
+            if not cbks.on_epoch_begin(epoch):
+                continue
             for step, _ in enumerate(train_dataloader):
-                cbks.on_batch_begin('train', step, logs)
+                if not cbks.on_batch_begin('train', step, logs):
+                    continue
                 try:
                     outs = self._executor.run(
                         self.main_program,

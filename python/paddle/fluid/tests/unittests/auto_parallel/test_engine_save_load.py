@@ -190,7 +190,7 @@ class TestDistSaveLoad(unittest.TestCase):
             keep_checkpoint_max_num=3,
             load_dir=self.save_dir,
         )
-        print(history.history)
+        #print(history.history)
 
 
 if __name__ == "__main__":
