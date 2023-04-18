@@ -2350,3 +2350,40 @@ def is_dep_skip_op(op):
         return True
 
     return False
+
+
+def is_complete_checkpoint(file_list, rank_size, file_prefix="final"):
+    opt_file_list = filter(lambda x: ".pdopt" in x, file_list)
+    for rank in range(rank_size):
+        if f"{file_prefix}_serial.pdmodel" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdmodel" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdparams" not in file_list:
+            return False
+        if f"{file_prefix}_dist{rank}.pdattr" not in file_list:
+            return False
+        if (
+            len(opt_file_list) > 0
+            and f"{file_prefix}_dist{rank}.pdopt" not in file_list
+        ):
+            return False
+    return True
+
+
+def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
+    file_prefix = None
+    final_prefix = "final"
+    succ, rank = is_complete_checkpoint(file_list, rank_size, final_prefix)
+    if succ:
+        return final_prefix, None, f"dist{rank}"
+    for e in range(max_epoch - 1, -1, -1):
+        epoch_prefix = f"epoch{e}"
+        for s in range(max_step - 1, -1, -1):
+            step_prefix = f"step{s}"
+            file_prefix = f"{epoch_prefix}_{step_prefix}"
+            if is_complete_checkpoint(file_list, rank_size, file_prefix):
+                return file_prefix
+            else:
+                file_prefix = None
+    return file_prefix

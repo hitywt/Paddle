@@ -952,7 +952,7 @@ class Engine:
                            batch_size=64)
         """
 
-        def get_latest_checkpoint_path(load_dir):
+        def get_latest_checkpoint_prefix(load_dir):
             # get latest checkpoint from all rank checkpoint
             checkpoint_meta_path = os.path.join(
                 load_dir, "latest_checkpoint.txt"
@@ -960,15 +960,19 @@ class Engine:
             if os.path.exists(checkpoint_meta_path):
                 with open(checkpoint_meta_path, "rb") as robj:
                     self._checkpoint_meta = json.loads(robj.read())
-            latest_checkpoint_path = self._checkpoint_meta.get(
-                "latest_checkpoint_path", None
+            max_epoch = self._checkpoint_meta.get("max_epoch", None)
+            max_step = self._checkpoint_meta.get("max_step", None)
+            rank_size = self._checkpoint_meta.get("rank_size", None)
+
+            file_list = os.listdir(load_dir)
+            file_prefix = auto_utils.get_latest_checkpoint_prefix(
+                file_list, max_epoch, max_step, rank_size
             )
-            return latest_checkpoint_path
+            return file_prefix
 
         if load_dir is not None:
-            latest_checkpoint_path = get_latest_checkpoint_path(load_dir)
-            if os.path.exists(latest_checkpoint_path):
-                self.load(latest_checkpoint_path)
+            latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
+            self.load(latest_checkpoint_prefix)
 
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(

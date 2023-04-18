@@ -257,6 +257,8 @@ class ModelCheckpointAuto(ModelCheckpoint):
         self._latest_checkpoint_dir = self.save_dir
         self._checkpoint_meta = {
             "rank_size": self._rank_size,
+            "max_epoch": None,
+            "max_step": None,
             "keep_checkpoint_max_num": self._keep_checkpoint_max_num,
             "current_checkpoint_paths": [],
         }
@@ -319,18 +321,15 @@ class ModelCheckpointAuto(ModelCheckpoint):
             self.is_save()
             and (self.step + 1) % self._save_checkpoint_every_n_step == 0
         ):
-            path = (
-                f"{self.save_dir}/epoch_{self.get_epoch}_step_{self.get_step}"
-            )
+
+            def get_time():
+                now = int(time.time())
+                return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
+
+            path = f"{self.save_dir}/{get_time()}_epoch_{self.get_epoch}_step_{self.get_step}"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
-            # send save path to master node
-            # TODO (yuwentao01)
-            # only rank0 update checkpoint meta, other rank send finished checkpoint info
             if self._rank_id == 0:
-                while self._saved_checkpoint_ranks != self._rank_size:
-                    # wait saved checkpoint_ranks inc
-                    pass
                 self._save_checkpoint_meta()
 
     def on_epoch_end(self, epoch, logs=None):
