@@ -153,10 +153,12 @@ class TestDistSaveLoad(unittest.TestCase):
         transform = T.Compose([T.Transpose(), T.Normalize([127.5], [127.5])])
         self.train_dataset = MNIST(mode='train', transform=transform)
         self.test_dataset = MNIST(mode='test', transform=transform)
+        print(f'debug TestDistSaveLoad save_dir: {self.save_dir}')
         self.prepare_engine()
 
     def tearDown(self):
-        shutil.rmtree(self.save_dir)
+        #shutil.rmtree(self.save_dir)
+        pass
 
     def prepare_engine(self):
         model = paddle.vision.models.LeNet()
@@ -184,6 +186,9 @@ class TestDistSaveLoad(unittest.TestCase):
             log_freq=20,
             save_dir=self.save_dir,
             save_freq=1,
+            save_checkpoint_every_n_step=20,
+            keep_checkpoint_max_num=3,
+            load_dir=self.save_dir,
         )
         print(history.history)
 

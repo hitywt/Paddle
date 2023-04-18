@@ -15,6 +15,7 @@
 import copy
 import logging
 import os
+import shutil
 import threading
 import warnings
 from functools import reduce
@@ -2389,6 +2390,8 @@ def _get_file_prefix(file_dir):
     file_list = os.listdir(file_dir)
     file_prefix_map = {}
     for file_name in file_list:
+        if "rank_mapping.csv" == file_name:
+            continue
         file_name_split = file_name.split("_")
         file_name_prefix = "_".join(file_name_split[:-1])
         if file_name_prefix not in file_prefix_map:
@@ -2399,7 +2402,8 @@ def _get_file_prefix(file_dir):
 
 def get_latest_checkpoint_timestamp(file_dir, rank_size):
     file_prefix_map = _get_file_prefix(file_dir)
-    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list = list(file_prefix_map.keys())
+    print(f"debug utils file_dir: {file_dir}, file_prefix_list: {file_prefix_list}, type: {type(file_prefix_list)}")
     file_prefix_list.sort(reverse=True)
     for file_prefix in file_prefix_list:
         file_paths = file_prefix_map[file_prefix]
@@ -2410,9 +2414,16 @@ def get_latest_checkpoint_timestamp(file_dir, rank_size):
 
 def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
     file_prefix_map = _get_file_prefix(file_dir)
-    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list = list(file_prefix_map.keys())
     file_prefix_list.sort()
+    if len(file_prefix_list) <= keep_checkpoint_max_num:
+        print(f"current checkpoint num: {len(file_prefix_list)} less than keep_checkpoint_max_num: {keep_checkpoint_max_num}, skip")
+        return
+    print(f"debug current checkpoint num: {len(file_prefix_list)}, prefix: {file_prefix_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
     file_prefix_to_remove = file_prefix_list[:keep_checkpoint_max_num]
     for file_prefix in file_prefix_to_remove:
-        value = file_prefix_map[file_prefix]
-        os.remove(os.path.join(file_dir, value))
+        files = file_prefix_map[file_prefix]
+        for file in files:
+            print(f"remove file: {os.path.join(file_dir, file)}")
+            #os.remove(os.path.join(file_dir, file))
+            pass

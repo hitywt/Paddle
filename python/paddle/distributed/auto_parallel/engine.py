@@ -952,6 +952,8 @@ class Engine:
                            batch_size=64)
         """
 
+        print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}")
+        print(f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}")
         def get_latest_checkpoint_prefix(load_dir):
             # get latest checkpoint from all rank checkpoint
             checkpoint_meta_path = os.path.join(
@@ -962,6 +964,14 @@ class Engine:
                     self._checkpoint_meta = json.loads(robj.read())
 
             rank_size = self._checkpoint_meta.get("rank_size", None)
+            self._checkpoint_meta.update(
+               {
+                  "keep_checkpoint_max_num": keep_checkpoint_max_num,
+                  "save_checkpoint_every_n_step": save_checkpoint_every_n_step,
+                  "save_checkpoint_every_n_epoch": save_freq,
+                  "save_dir": save_dir,
+               })
+            # which items are need to be updated
             file_path = auto_utils.get_latest_checkpoint_timestamp(
                 load_dir, rank_size
             )
@@ -969,7 +979,9 @@ class Engine:
 
         if load_dir is not None:
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
-            self.load(latest_checkpoint_prefix)
+            print(f"debug engine latest_checkpoint_prefix: {latest_checkpoint_prefix}")
+            if latest_checkpoint_prefix is not None:
+                self.load(latest_checkpoint_prefix)
 
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
@@ -992,6 +1004,7 @@ class Engine:
 
         fetch_names, fetch_indices = self._prepare_fetch(None, mode=self._mode)
 
+        print(f"debug engine fit config_callbacks: {save_dir}")
         cbks = config_callbacks(
             callbacks,
             engine=self,
@@ -1000,13 +1013,11 @@ class Engine:
             steps=train_dataloader._steps,
             log_freq=log_freq,
             save_freq=save_freq,
-            save_checkpoint_every_n_step=save_checkpoint_every_n_step,
-            keep_checkpoint_max_num=keep_checkpoint_max_num,
+            latest_checkpoint_meta=self._checkpoint_meta,
             save_dir=save_dir,
             verbose=verbose,
             metrics=self._metrics_name(),
             acc_step=self._k_steps,
-            rng_state=self._rng_state,
         )
 
         cbks.on_begin('train')
@@ -1702,6 +1713,7 @@ class Engine:
                 engine.save("./my_model")
 
         """
+        print(f"debug engine save: {path}, {training}")
         if training:
             assert self._mode in self._dist_contexts
             dist_context = self._dist_contexts[self._mode]
