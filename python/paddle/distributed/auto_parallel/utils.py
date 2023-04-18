@@ -2353,7 +2353,6 @@ def is_dep_skip_op(op):
 
 
 def is_complete_checkpoint(file_list, rank_size, file_prefix="final"):
-    opt_file_list = filter(lambda x: ".pdopt" in x, file_list)
     for rank in range(rank_size):
         if f"{file_prefix}_serial.pdmodel" not in file_list:
             return False
@@ -2363,10 +2362,7 @@ def is_complete_checkpoint(file_list, rank_size, file_prefix="final"):
             return False
         if f"{file_prefix}_dist{rank}.pdattr" not in file_list:
             return False
-        if (
-            len(opt_file_list) > 0
-            and f"{file_prefix}_dist{rank}.pdopt" not in file_list
-        ):
+        if f"{file_prefix}_dist{rank}.pdopt" not in file_list:
             return False
     return True
 
@@ -2387,3 +2383,21 @@ def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
             else:
                 file_prefix = None
     return file_prefix
+
+
+def get_latest_checkpoint_timestamp(file_dir, rank_size):
+    file_list = os.listdir(file_dir)
+    file_prefix_map = {}
+    for file_name in file_list:
+        file_name_split = file_name.split("_")
+        if file_name_split[0] not in file_prefix_map:
+            file_prefix_map[file_name_split[0]] = []
+        file_prefix_map[file_name_split[0]].append(file_name)
+    file_prefix_list = file_prefix_map.keys()
+    file_prefix_list.sort(reverse=True)
+
+    for file_prefix in file_prefix_list:
+        file_paths = file_prefix_map[file_prefix]
+        if is_complete_checkpoint(file_paths, rank_size, file_prefix):
+            return file_prefix
+    return None

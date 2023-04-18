@@ -960,15 +960,12 @@ class Engine:
             if os.path.exists(checkpoint_meta_path):
                 with open(checkpoint_meta_path, "rb") as robj:
                     self._checkpoint_meta = json.loads(robj.read())
-            max_epoch = self._checkpoint_meta.get("max_epoch", None)
-            max_step = self._checkpoint_meta.get("max_step", None)
-            rank_size = self._checkpoint_meta.get("rank_size", None)
 
-            file_list = os.listdir(load_dir)
-            file_prefix = auto_utils.get_latest_checkpoint_prefix(
-                file_list, max_epoch, max_step, rank_size
+            rank_size = self._checkpoint_meta.get("rank_size", None)
+            file_path = auto_utils.get_latest_checkpoint_timestamp(
+                load_dir, rank_size
             )
-            return file_prefix
+            return file_path
 
         if load_dir is not None:
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)

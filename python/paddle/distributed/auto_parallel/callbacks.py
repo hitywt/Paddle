@@ -326,7 +326,7 @@ class ModelCheckpointAuto(ModelCheckpoint):
                 now = int(time.time())
                 return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
 
-            path = f"{self.save_dir}/{get_time()}_epoch_{self.get_epoch}_step_{self.get_step}"
+            path = f"{self.save_dir}/{get_time()}_epoch{self.get_epoch}_step{self.get_step}"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self.model.save(path)
             if self._rank_id == 0:
