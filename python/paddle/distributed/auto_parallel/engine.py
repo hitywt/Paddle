@@ -952,18 +952,21 @@ class Engine:
                            batch_size=64)
         """
 
+        start_step = 0
+        start_epoch = 0
         print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}")
         print(f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}")
         def get_latest_checkpoint_prefix(load_dir):
             # get latest checkpoint from all rank checkpoint
-            checkpoint_meta_path = os.path.join(
+            latest_checkpoint_path = os.path.join(
                 load_dir, "latest_checkpoint.txt"
             )
-            if os.path.exists(checkpoint_meta_path):
-                with open(checkpoint_meta_path, "rb") as robj:
-                    self._checkpoint_meta = json.loads(robj.read())
 
-            rank_size = self._checkpoint_meta.get("rank_size", None)
+            if os.path.exists(latest_checkpoint_path):
+                with open(latest_checkpoint_path, "r") as robj:
+                    latest_checkpoint = json.loads(robj.read())
+                    self._checkpoint_meta.update(latest_checkpoint)
+            print(f"debug engine latest_checkpoint before: {self._checkpoint_meta}")
             self._checkpoint_meta.update(
                {
                   "keep_checkpoint_max_num": keep_checkpoint_max_num,
@@ -971,7 +974,10 @@ class Engine:
                   "save_checkpoint_every_n_epoch": save_freq,
                   "save_dir": save_dir,
                })
-            # which items are need to be updated
+            print(f"debug engine latest_checkpoint after: {self._checkpoint_meta}")
+            rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
+            start_step = self._checkpoint_meta.get("steps", 0)
+            start_epoch = self._checkpoint_meta.get("epochs", 0)
             file_path = auto_utils.get_latest_checkpoint_timestamp(
                 load_dir, rank_size
             )
@@ -979,9 +985,14 @@ class Engine:
 
         if load_dir is not None:
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
-            print(f"debug engine latest_checkpoint_prefix: {latest_checkpoint_prefix}")
+            print(f"debug engine latest_checkpoint_prefix: {latest_checkpoint_prefix}, load_dir: {load_dir}")
             if latest_checkpoint_prefix is not None:
-                self.load(latest_checkpoint_prefix)
+                latest_checkpoint_prefix_path = os.path.join(load_dir, latest_checkpoint_prefix)
+                self.load(latest_checkpoint_prefix_path)
+            else:
+                start_step = 0
+                start_epoch = 0
+                print(f"get latest_checkpoint failed, skip load checkpoint, load_dir {load_dir}")
 
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
@@ -1004,7 +1015,7 @@ class Engine:
 
         fetch_names, fetch_indices = self._prepare_fetch(None, mode=self._mode)
 
-        print(f"debug engine fit config_callbacks: {save_dir}")
+        print(f"debug engine fit config_callbacks checkpoint_meta: {self._checkpoint_meta}")
         cbks = config_callbacks(
             callbacks,
             engine=self,
@@ -1020,14 +1031,23 @@ class Engine:
             acc_step=self._k_steps,
         )
 
+        print(f"debug engine fit start_step: {start_step}, start_epoch: {start_epoch}, epochs: {epochs}")
         cbks.on_begin('train')
+        logs = {}
         for epoch in range(epochs):
-            logs = {}
-            if not cbks.on_epoch_begin(epoch):
+            print(f"debug engint fit epoch: {epoch} begin")
+            if epoch < start_epoch:
                 continue
+            start_epoch = 0
+
+            cbks.on_epoch_begin(epoch)
             for step, _ in enumerate(train_dataloader):
-                if not cbks.on_batch_begin('train', step, logs):
+                print(f"debug engine fit step: {step} begin")
+                if step < start_step:
                     continue
+                start_step = 0
+
+                cbks.on_batch_begin('train', step, logs)
                 try:
                     outs = self._executor.run(
                         self.main_program,
@@ -1047,6 +1067,7 @@ class Engine:
                     fetch_indices,
                     self._mode,
                 )
+                print(f"debug engine fit step: {step} end")
                 cbks.on_batch_end('train', step, logs)
 
             if valid_data and (epoch + 1) % valid_freq == 0:
@@ -1068,6 +1089,7 @@ class Engine:
             else:
                 self._reset_metrics()
 
+            print(f"debug engint fit epoch: {epoch} end")
             cbks.on_epoch_end(epoch, logs)
 
         cbks.on_end('train', logs)
@@ -1130,6 +1152,7 @@ class Engine:
                 engine.evaluate(valid_dataset, batch_size=64)
 
         """
+        print(f"debug engine evaluate begin")
         self._mode = 'eval'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
             valid_data, valid_sample_split, batch_size
@@ -1801,6 +1824,7 @@ class Engine:
                 engine.load("./my_model")
 
         """
+        print(f"debug engine load from path: {path}")
         self._strict = strict
         self._state_dict, self._dist_attr = self._saver.load(
             path, load_optimizer

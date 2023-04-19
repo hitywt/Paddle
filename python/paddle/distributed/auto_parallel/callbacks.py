@@ -57,7 +57,7 @@ def config_callbacks(
     if not any(isinstance(k, ModelCheckpoint) for k in cbks):
         cbks = cbks + [
             #ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta }
-            ModelCheckpointAuto(latest_checkpoint_meta=latest_checkpoint_meta)
+            ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
         ]
 
     if not any(isinstance(k, Profiler) for k in cbks) and verbose == 3:
@@ -73,7 +73,7 @@ def config_callbacks(
             cbks[i] = LRSchedulerAuto(k.by_step, k.by_epoch)
         if isinstance(k, ModelCheckpoint):
             #cbks[i] = ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta })
-            cbks[i] = ModelCheckpointAuto(latest_checkpoint_meta=latest_checkpoint_meta)
+            cbks[i] = ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
 
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
@@ -236,20 +236,44 @@ class ModelCheckpointAuto(ModelCheckpoint):
     def __init__(self, *args, **kwargs):
         self._checkpoint_meta = kwargs.get("latest_checkpoint_meta", None)
         print(f"debug callbacks args: {args}, kwargs: {kwargs}")
-        save_freq = self._checkpoint_meta.get("save_freq", 1)
-        save_dir = self._checkpoint_meta.get("save_dir", None)
-        print(f'debug model ckpt save_freq: {save_freq}, save_dir: {save_dir}')
+        save_freq = kwargs.get("save_freq", 1)
+        save_dir = kwargs.get("save_dir", None)
+        if self._checkpoint_meta:
+            save_freq = self._checkpoint_meta.get("save_freq", 1)
+            save_dir = self._checkpoint_meta.get("save_dir", None)
         super().__init__(save_freq=save_freq, save_dir=save_dir)
         # model params for restore check between checkpoint and args
         self._rank_id = paddle.distributed.get_rank()
         self._rank_size = paddle.distributed.get_world_size()
         self._latest_checkpoint_dir = self.save_dir
-        self._init_step = self._checkpoint_meta.get("epochs", 0)
-        self._init_epoch = self._checkpoint_meta.get("steps", 0)
+
+    @property
+    def epochs(self):
+        return self._checkpoint_meta.get("epochs", 0)
+
+    @epochs.setter
+    def epochs(self, value):
+        self._checkpoint_meta["epochs"] = value
+
+    @property
+    def steps(self):
+        return self._checkpoint_meta.get("steps", 0)
+
+    @steps.setter
+    def steps(self, value):
+        self._checkpoint_meta["steps"] = value
 
     @property
     def keep_checkpoint_max_num(self):
         return self._checkpoint_meta.get("keep_checkpoint_max_num", None)
+
+    @property
+    def save_checkpoint_every_n_step(self):
+        return self._checkpoint_meta.get("save_checkpoint_every_n_step", None)
+
+    @property
+    def save_checkpoint_every_n_epoch(self):
+        return self._checkpoint_meta.get("save_checkpoint_every_n_epoch", None)
 
     @property
     def rng_state(self):
@@ -264,8 +288,10 @@ class ModelCheckpointAuto(ModelCheckpoint):
             )
         return latest_ckpt_path
 
-    def _save_checkpoint_meta(self):
+    def _save_checkpoint_meta(self, latest_checkpoint_path):
         # 保存ckpt、dataloader状态数据
+        print(f"save checkpoint meta: {self._checkpoint_meta} path: {latest_checkpoint_path}")
+        self._checkpoint_meta["latest_checkpoint_path"] = latest_checkpoint_path
         with open(self.checkpoint_meta_path, "w") as wobj:
             print(f'debug checkpoint_meta: {self._checkpoint_meta}')
             wobj.write(f"{json.dumps(self._checkpoint_meta)}")
@@ -278,51 +304,35 @@ class ModelCheckpointAuto(ModelCheckpoint):
         return self.get_checkpoint_meta
 
     def _is_save(self):
-        print(f"debug callbacks is_save, model: {self.model}, save_dir: {self.save_dir}")
         return self.model and self.save_dir
 
     def _save_checkpoint(self, path):
         self.model.save(path)
         if self._rank_id == 0:
-            self._save_checkpoint_meta()
+            self._save_checkpoint_meta(path)
         auto_utils.update_checkpoint_filelist(
             self.save_dir, self.keep_checkpoint_max_num
         )
 
-    def on_train_batch_begin(self, step, logs=None):
-        if step < self.init_step:
-            return False
-        self.step = step
-        self._init_step = 0
-        return True
+    def _get_timestamp(self):
+        now = int(time.time())
+        return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
 
     def on_train_batch_end(self, step, logs=None):
-        self.step = step if self.step == 0 else self.step + 1
+        self.steps = step+1
         if (
             self._is_save()
             and self.save_checkpoint_every_n_step is not None
-            and (self.step + 1) % self.save_checkpoint_every_n_step == 0
+            and self.steps % self.save_checkpoint_every_n_step == 0
         ):
-
-            def get_time():
-                now = int(time.time())
-                return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
-
-            path = f"{self.save_dir}/{get_time()}_epoch{self.get_epoch}_step{self.get_step}"
+            path = f"{self.save_dir}/{self._get_timestamp()}/epoch{self.epochs}_step{self.steps}"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
 
-    def on_epoch_begin(self, epoch, logs=None):
-        if epoch < self._init_epoch:
-            return False
-        self.epoch = epoch
-        self._init_epoch = 0
-        return True
-
     def on_epoch_end(self, epoch, logs=None):
-        self.epoch = epoch if self.epoch == 0 else self.epoch + 1
-        if self._is_save() and (self.epoch + 1) % self.save_freq == 0:
-            path = f'{self.save_dir}/epoch{epoch}'
+        self.epochs = epoch+1
+        if self._is_save() and self.epochs % self.save_freq == 0:
+            path = f'{self.save_dir}/{self._get_timestamp()}/epoch{epoch}'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
 
@@ -330,6 +340,6 @@ class ModelCheckpointAuto(ModelCheckpoint):
         print(f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}")
         if self._is_save():
             print(f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}")
-            path = f'{self.save_dir}/final'
+            path = f'{self.save_dir}/{self._get_timestamp()}/final'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)

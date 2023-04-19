@@ -2390,7 +2390,7 @@ def _get_file_prefix(file_dir):
     file_list = os.listdir(file_dir)
     file_prefix_map = {}
     for file_name in file_list:
-        if "rank_mapping.csv" == file_name:
+        if file_name in ["rank_mapping.csv"]:
             continue
         file_name_split = file_name.split("_")
         file_name_prefix = "_".join(file_name_split[:-1])
@@ -2401,14 +2401,24 @@ def _get_file_prefix(file_dir):
 
 
 def get_latest_checkpoint_timestamp(file_dir, rank_size):
-    file_prefix_map = _get_file_prefix(file_dir)
+    file_timestamp = os.listdir(file_dir)
+    file_timestamp = list(filter(lambda x: x != "latest_checkpoint.txt", file_timestamp))
+    if len(file_timestamp) == 0:
+        return None
+    file_timestamp.sort(reverse=True) 
+    file_timestamp_path = os.path.join(file_dir, file_timestamp[0])
+    print(f"debug util file_timestamp_path: {file_timestamp_path}")
+    file_prefix_map = _get_file_prefix(file_timestamp_path)
+    print(f"debug util file_prefix_map: {file_prefix_map}")
     file_prefix_list = list(file_prefix_map.keys())
     print(f"debug utils file_dir: {file_dir}, file_prefix_list: {file_prefix_list}, type: {type(file_prefix_list)}")
     file_prefix_list.sort(reverse=True)
+    # TODO(yuwetnao01) ensure get latest checkpoint under timestamp directory
     for file_prefix in file_prefix_list:
         file_paths = file_prefix_map[file_prefix]
         if is_complete_checkpoint(file_paths, rank_size, file_prefix):
-            return file_prefix
+            print(f"debug util find complete checkpoint file_timestamp_path: {file_timestamp_path}, file_prefix: {file_prefix}")
+            return os.path.join(file_timestamp_path, file_prefix)
     return None
 
 
