@@ -2388,10 +2388,13 @@ def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
 
 def _get_checkpoint_directory(file_dir):
     checkpoint_dir_list = os.listdir(file_dir)
-    checkpoint_dir_list = list(filter(lambda x: x != "latest_checkpoint.txt", checkpoint_dir_list))
+    checkpoint_dir_list = list(
+        filter(lambda x: x != "latest_checkpoint.txt", checkpoint_dir_list)
+    )
     if len(checkpoint_dir_list) == 0:
         return None
     return checkpoint_dir_list
+
 
 def _get_checkpoint_prefix(file_dir):
     file_list = os.listdir(file_dir)
@@ -2411,7 +2414,7 @@ def get_latest_checkpoint_timestamp(file_dir, rank_size):
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
     if checkpoint_dir_list is None:
         return None
-    checkpoint_dir_list.sort(reverse=True) 
+    checkpoint_dir_list.sort(reverse=True)
     for checkpoint_dir in checkpoint_dir_list:
         checkpoint_dir_path = os.path.join(file_dir, checkpoint_dir)
         checkpoint_prefix_map = _get_checkpoint_prefix(checkpoint_dir_path)
@@ -2420,17 +2423,24 @@ def get_latest_checkpoint_timestamp(file_dir, rank_size):
                 return os.path.join(checkpoint_dir_path, prefix)
     return None
 
+
 def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
-    if checkpoint_dir_list is None or len(checkpoint_dir_list) <= keep_checkpoint_max_num:
+    if (
+        checkpoint_dir_list is None
+        or len(checkpoint_dir_list) <= keep_checkpoint_max_num
+    ):
         return None
     checkpoint_dir_list.sort(reverse=True)
-    print(f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
+    print(
+        f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}"
+    )
     for checkpoint_dir in checkpoint_dir_list[keep_checkpoint_max_num:]:
         rmdir = os.path.join(file_dir, checkpoint_dir)
         shutil.rmtree(rmdir)
         print(f"remove older directory: {rmdir}")
     return True
 
+
 def get_checkpoint_meta_path(checkpoint_meta_dir):
-    return os.path.join(checkpoint_meta_dir, "latest_checkpoint.txt") 
+    return os.path.join(checkpoint_meta_dir, "latest_checkpoint.txt")

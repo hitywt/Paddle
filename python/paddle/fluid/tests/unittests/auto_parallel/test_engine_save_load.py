@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-import shutil
 import tempfile
 import unittest
 
@@ -149,7 +148,7 @@ class TestSaveLoad(unittest.TestCase):
 
 class TestDistSaveLoad(unittest.TestCase):
     def setUp(self):
-        #self.save_dir = tempfile.mkdtemp()
+        # self.save_dir = tempfile.mkdtemp()
         self.save_dir = "/tmp/test_save_load"
         self.load_dir = "/tmp/test_save_load"
         if not os.path.exists(self.save_dir):
@@ -161,7 +160,7 @@ class TestDistSaveLoad(unittest.TestCase):
         self.prepare_engine()
 
     def tearDown(self):
-        #shutil.rmtree(self.save_dir)
+        # shutil.rmtree(self.save_dir)
         pass
 
     def prepare_engine(self):
@@ -195,7 +194,7 @@ class TestDistSaveLoad(unittest.TestCase):
             keep_checkpoint_max_num=4,
             load_dir=self.load_dir,
         )
-        #print(history.history)
+        # print(history.history)
 
 
 if __name__ == "__main__":

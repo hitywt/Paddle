@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
 import os
-import time
 import pickle
+import time
 
 import paddle
 import paddle.distributed.auto_parallel.utils as auto_utils
@@ -57,8 +56,12 @@ def config_callbacks(
     print(f"debug config_callbacks save_dir: {save_dir}")
     if not any(isinstance(k, ModelCheckpoint) for k in cbks):
         cbks = cbks + [
-            #ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta }
-            ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
+            # ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta }
+            ModelCheckpointAuto(
+                save_freq=save_freq,
+                save_dir=save_dir,
+                latest_checkpoint_meta=latest_checkpoint_meta,
+            )
         ]
 
     if not any(isinstance(k, Profiler) for k in cbks) and verbose == 3:
@@ -73,10 +76,13 @@ def config_callbacks(
         if isinstance(k, LRScheduler):
             cbks[i] = LRSchedulerAuto(k.by_step, k.by_epoch)
         if isinstance(k, ModelCheckpoint):
-            #cbks[i] = ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta })
-            cbks[i] = ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
+            # cbks[i] = ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta })
+            cbks[i] = ModelCheckpointAuto(
+                save_freq=save_freq,
+                save_dir=save_dir,
+                latest_checkpoint_meta=latest_checkpoint_meta,
+            )
 
-    print(f"debug config_callbacks: {cbks}")
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
     metrics = metrics or [] if mode != 'test' else []
@@ -88,9 +94,9 @@ def config_callbacks(
         'metrics': metrics,
         'acc_step': acc_step,
     }
-    print(f"debug callbacks History on_epoch_end: begin log")
     cbk_list.set_params(params)
     return cbk_list
+
 
 class ProgBarLoggerAuto(ProgBarLogger):
     def __init__(self, log_freq=1, verbose=2):
@@ -114,7 +120,7 @@ class ProgBarLoggerAuto(ProgBarLogger):
 
         fetches_logs = logs.get('fetches', {})
         fetches_logs = {}
-        #TODO(yuwentao01) remove fetches temp
+        # TODO(yuwentao01) remove fetches temp
         collect_logging = get_collection(CollectionNames.LOGGING)
         for name, var in collect_logging:
             k = name or var.name
@@ -225,7 +231,6 @@ class Profiler(Callback):
     def on_train_batch_end(self, step, logs=None):
         self.train_step += 1
         self.prof.step(num_samples=self.batch_size)
-        print(f"debug callbacks profile, on_train_batch_end")
         print(
             "step {}:{}".format(
                 self.train_step, self.prof.step_info(unit='samples')
@@ -279,13 +284,15 @@ class ModelCheckpointAuto(ModelCheckpoint):
 
     @property
     def rng_state(self):
-        return self._checkpoint_meta.get("rng_state", NOne)
+        return self._checkpoint_meta.get("rng_state", None)
 
     @property
     def checkpoint_meta_path(self):
         latest_ckpt_path = None
         if self.save_dir:
-            latest_ckpt_path = auto_utils.get_checkpoint_meta_path(self.save_dir)
+            latest_ckpt_path = auto_utils.get_checkpoint_meta_path(
+                self.save_dir
+            )
         return latest_ckpt_path
 
     def _save_checkpoint_meta(self, latest_checkpoint_path):
@@ -293,7 +300,7 @@ class ModelCheckpointAuto(ModelCheckpoint):
         self._checkpoint_meta["latest_checkpoint_path"] = latest_checkpoint_path
         with open(self.checkpoint_meta_path, "wb") as wobj:
             pickle.dump(self._checkpoint_meta, wobj)
-            #wobj.write(f"{json.dumps(self._checkpoint_meta)}")
+            # wobj.write(f"{json.dumps(self._checkpoint_meta)}")
         return True
 
     def _is_save(self):
@@ -312,18 +319,20 @@ class ModelCheckpointAuto(ModelCheckpoint):
         return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
 
     def on_train_batch_end(self, step, logs=None):
-        self.steps = step+1
+        self.steps = step + 1
         if (
             self._is_save()
             and self.save_checkpoint_every_n_step is not None
             and self.steps % self.save_checkpoint_every_n_step == 0
         ):
-            path = f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
+            path = (
+                f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
+            )
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
 
     def on_epoch_end(self, epoch, logs=None):
-        self.epochs = epoch+1
+        self.epochs = epoch + 1
         """
         if self._is_save() and self.epochs % self.save_freq == 0:
             path = f'{self.save_dir}/epoch{epoch}'
@@ -332,9 +341,15 @@ class ModelCheckpointAuto(ModelCheckpoint):
         """
 
     def on_train_end(self, logs=None):
-        print(f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}")
+        print(
+            f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}"
+        )
         if self._is_save():
-            print(f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}")
-            path = f"{self.save_dir}/epoch{self.epochs-1}_step{self.steps}/default"
+            print(
+                f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}"
+            )
+            path = (
+                f"{self.save_dir}/epoch{self.epochs-1}_step{self.steps}/default"
+            )
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
