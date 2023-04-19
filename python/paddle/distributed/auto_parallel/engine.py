@@ -968,9 +968,10 @@ class Engine:
                     self._checkpoint_meta.update(checkpoint_meta)
 
                 rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
-                file_path = auto_utils.get_latest_checkpoint_timestamp(
+                file_path = auto_utils.get_latest_checkpoint_prefix(
                     load_dir, rank_size
                 )
+                print(f"debug latest checkpoint meta: {self._checkpoint_meta}")
                 return file_path
 
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
@@ -1035,13 +1036,13 @@ class Engine:
         for epoch in range(epochs):
             cbks.on_epoch_begin(epoch)
             if epoch < start_epoch:
-                cbks.on_epoch_end(epoch, logs)
+                #cbks.on_epoch_end(epoch, logs)
                 continue
 
             for step, _ in enumerate(train_dataloader):
                 cbks.on_batch_begin('train', step, logs)
-                if step < start_step:
-                    cbks.on_batch_end('train', step, logs)
+                if epoch < start_epoch and step < start_step:
+                    #cbks.on_batch_end('train', step, logs)
                     continue
                 try:
                     outs = self._executor.run(

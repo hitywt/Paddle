@@ -303,9 +303,9 @@ class ModelCheckpointAuto(ModelCheckpoint):
         self.model.save(path)
         if self._rank_id == 0:
             self._save_checkpoint_meta(path)
-        auto_utils.update_checkpoint_filelist(
-            self.save_dir, self.keep_checkpoint_max_num
-        )
+            auto_utils.update_checkpoint_filelist(
+                self.save_dir, self.keep_checkpoint_max_num
+            )
 
     def _get_timestamp(self):
         now = int(time.time())
