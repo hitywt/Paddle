@@ -2431,3 +2431,6 @@ def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
         shutil.rmtree(rmdir)
         print(f"remove older directory: {rmdir}")
     return True
+
+def get_checkpoint_meta_path(checkpoint_meta_dir):
+    return os.path.join(checkpoint_meta_dir, "latest_checkpoint.txt") 

@@ -15,6 +15,7 @@
 import json
 import os
 import time
+import pickle
 
 import paddle
 import paddle.distributed.auto_parallel.utils as auto_utils
@@ -75,6 +76,7 @@ def config_callbacks(
             #cbks[i] = ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta })
             cbks[i] = ModelCheckpointAuto(save_freq=save_freq, save_dir=save_dir, latest_checkpoint_meta=latest_checkpoint_meta)
 
+    print(f"debug config_callbacks: {cbks}")
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
     metrics = metrics or [] if mode != 'test' else []
@@ -86,9 +88,9 @@ def config_callbacks(
         'metrics': metrics,
         'acc_step': acc_step,
     }
+    print(f"debug callbacks History on_epoch_end: begin log")
     cbk_list.set_params(params)
     return cbk_list
-
 
 class ProgBarLoggerAuto(ProgBarLogger):
     def __init__(self, log_freq=1, verbose=2):
@@ -111,6 +113,8 @@ class ProgBarLoggerAuto(ProgBarLogger):
             values.append(('lr', logs['lr']))
 
         fetches_logs = logs.get('fetches', {})
+        fetches_logs = {}
+        #TODO(yuwentao01) remove fetches temp
         collect_logging = get_collection(CollectionNames.LOGGING)
         for name, var in collect_logging:
             k = name or var.name
@@ -221,6 +225,7 @@ class Profiler(Callback):
     def on_train_batch_end(self, step, logs=None):
         self.train_step += 1
         self.prof.step(num_samples=self.batch_size)
+        print(f"debug callbacks profile, on_train_batch_end")
         print(
             "step {}:{}".format(
                 self.train_step, self.prof.step_info(unit='samples')
@@ -235,17 +240,14 @@ class Profiler(Callback):
 class ModelCheckpointAuto(ModelCheckpoint):
     def __init__(self, *args, **kwargs):
         self._checkpoint_meta = kwargs.get("latest_checkpoint_meta", None)
-        print(f"debug callbacks args: {args}, kwargs: {kwargs}")
         save_freq = kwargs.get("save_freq", 1)
         save_dir = kwargs.get("save_dir", None)
         if self._checkpoint_meta:
             save_freq = self._checkpoint_meta.get("save_freq", 1)
             save_dir = self._checkpoint_meta.get("save_dir", None)
         super().__init__(save_freq=save_freq, save_dir=save_dir)
-        # model params for restore check between checkpoint and args
         self._rank_id = paddle.distributed.get_rank()
         self._rank_size = paddle.distributed.get_world_size()
-        self._latest_checkpoint_dir = self.save_dir
 
     @property
     def epochs(self):
@@ -283,25 +285,16 @@ class ModelCheckpointAuto(ModelCheckpoint):
     def checkpoint_meta_path(self):
         latest_ckpt_path = None
         if self.save_dir:
-            latest_ckpt_path = os.path.join(
-                self.save_dir, "latest_checkpoint.txt"
-            )
+            latest_ckpt_path = auto_utils.get_checkpoint_meta_path(self.save_dir)
         return latest_ckpt_path
 
     def _save_checkpoint_meta(self, latest_checkpoint_path):
         # 保存ckpt、dataloader状态数据
-        print(f"save checkpoint meta: {self._checkpoint_meta} path: {latest_checkpoint_path}")
         self._checkpoint_meta["latest_checkpoint_path"] = latest_checkpoint_path
-        with open(self.checkpoint_meta_path, "w") as wobj:
-            print(f'debug checkpoint_meta: {self._checkpoint_meta}')
-            wobj.write(f"{json.dumps(self._checkpoint_meta)}")
+        with open(self.checkpoint_meta_path, "wb") as wobj:
+            pickle.dump(self._checkpoint_meta, wobj)
+            #wobj.write(f"{json.dumps(self._checkpoint_meta)}")
         return True
-
-    def _load_checkpoint_meta(self):
-        # 恢复ckpt、dataloader状态
-        with open(self.checkpoint_meta_path, "rb") as robj:
-            self._checkpoint_meta = json.loads(robj.read())
-        return self.get_checkpoint_meta
 
     def _is_save(self):
         return self.model and self.save_dir
