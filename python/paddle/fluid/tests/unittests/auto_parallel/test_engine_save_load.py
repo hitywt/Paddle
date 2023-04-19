@@ -150,7 +150,7 @@ class TestSaveLoad(unittest.TestCase):
 class TestDistSaveLoad(unittest.TestCase):
     def setUp(self):
         #self.save_dir = tempfile.mkdtemp()
-        self.save_dir = "/tmp/test_save_load"
+        self.save_dir = "/tmp/test_save_load_v3"
         if not os.path.exists(self.save_dir):
             os.mkdir(self.save_dir)
         transform = T.Compose([T.Transpose(), T.Normalize([127.5], [127.5])])
@@ -190,8 +190,8 @@ class TestDistSaveLoad(unittest.TestCase):
             epochs=2,
             save_dir=self.save_dir,
             save_freq=1,
-            save_checkpoint_every_n_step=20,
-            keep_checkpoint_max_num=3,
+            save_checkpoint_every_n_step=10,
+            keep_checkpoint_max_num=4,
             load_dir=self.save_dir,
         )
         #print(history.history)

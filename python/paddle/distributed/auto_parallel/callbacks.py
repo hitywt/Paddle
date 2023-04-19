@@ -325,21 +325,23 @@ class ModelCheckpointAuto(ModelCheckpoint):
             and self.save_checkpoint_every_n_step is not None
             and self.steps % self.save_checkpoint_every_n_step == 0
         ):
-            path = f"{self.save_dir}/{self._get_timestamp()}/epoch{self.epochs}_step{self.steps}"
+            path = f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
 
     def on_epoch_end(self, epoch, logs=None):
         self.epochs = epoch+1
+        """
         if self._is_save() and self.epochs % self.save_freq == 0:
-            path = f'{self.save_dir}/{self._get_timestamp()}/epoch{epoch}'
+            path = f'{self.save_dir}/epoch{epoch}'
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
+        """
 
     def on_train_end(self, logs=None):
         print(f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}")
         if self._is_save():
             print(f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}")
-            path = f'{self.save_dir}/{self._get_timestamp()}/final'
+            path = f"{self.save_dir}/epoch{self.epochs-1}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)

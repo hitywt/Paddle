@@ -51,7 +51,6 @@ from .planner_v2 import Planner
 from .process_group import get_all_process_groups, new_process_group
 from .strategy import Strategy
 
-
 class Engine:
     """
     An Engine object can provide the full power of auto parallel to users.
@@ -954,6 +953,7 @@ class Engine:
 
         start_step = 0
         start_epoch = 0
+
         print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}")
         print(f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}")
         def get_latest_checkpoint_prefix(load_dir):
@@ -974,26 +974,23 @@ class Engine:
                   "save_checkpoint_every_n_epoch": save_freq,
                   "save_dir": save_dir,
                })
-            print(f"debug engine latest_checkpoint after: {self._checkpoint_meta}")
             rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
             start_step = self._checkpoint_meta.get("steps", 0)
             start_epoch = self._checkpoint_meta.get("epochs", 0)
             file_path = auto_utils.get_latest_checkpoint_timestamp(
                 load_dir, rank_size
             )
-            return file_path
+            print(f"debug engine latest_checkpoint after: {self._checkpoint_meta}, start_step: {start_step}, start_epoch: {start_epoch}, file_path: {file_path}")
+            return file_path, start_step, start_epoch
 
         if load_dir is not None:
-            latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
+            latest_checkpoint_prefix, start_step, start_epoch = get_latest_checkpoint_prefix(load_dir)
             print(f"debug engine latest_checkpoint_prefix: {latest_checkpoint_prefix}, load_dir: {load_dir}")
             if latest_checkpoint_prefix is not None:
                 latest_checkpoint_prefix_path = os.path.join(load_dir, latest_checkpoint_prefix)
                 self.load(latest_checkpoint_prefix_path)
-            else:
-                start_step = 0
-                start_epoch = 0
-                print(f"get latest_checkpoint failed, skip load checkpoint, load_dir {load_dir}")
 
+        print(f"debug engine fit start train start_step: {start_step}, start_epoch: {start_epoch}")
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
             train_data, train_sample_split, batch_size
