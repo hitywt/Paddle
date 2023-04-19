@@ -13,9 +13,11 @@
 # limitations under the License.
 
 import os
+import sys
 import shutil
 import tempfile
 import unittest
+import subprocess
 
 import numpy as np
 
@@ -150,7 +152,8 @@ class TestSaveLoad(unittest.TestCase):
 class TestDistSaveLoad(unittest.TestCase):
     def setUp(self):
         #self.save_dir = tempfile.mkdtemp()
-        self.save_dir = "/tmp/test_save_load_v3"
+        self.save_dir = "/tmp/test_save_load"
+        self.load_dir = "/tmp/test_save_load"
         if not os.path.exists(self.save_dir):
             os.mkdir(self.save_dir)
         transform = T.Compose([T.Transpose(), T.Normalize([127.5], [127.5])])
@@ -160,7 +163,10 @@ class TestDistSaveLoad(unittest.TestCase):
         self.prepare_engine()
 
     def tearDown(self):
-        #shutil.rmtree(self.save_dir)
+        if os.path.exists(self.save_dir):
+            shutil.rmtree(self.save_dir)
+        if os.path.exists(self.load_dir):
+            shutil.rmtree(self.load_dir)
         pass
 
     def prepare_engine(self):
@@ -179,23 +185,52 @@ class TestDistSaveLoad(unittest.TestCase):
         metrics = paddle.metric.Accuracy(topk=(1, 2))
         self.engine = auto.Engine(model, loss, optimizer, metrics)
 
-    def test_dist_save_load(self):
+    def itest_single_save_load(self):
         history = self.engine.fit(
             train_data=self.train_dataset,
             valid_data=self.test_dataset,
             batch_size=128,
-            steps_per_epoch=60,
+            steps_per_epoch=360,
             valid_steps=40,
-            log_freq=20,
+            log_freq=1,
             epochs=2,
             save_dir=self.save_dir,
             save_freq=1,
             save_checkpoint_every_n_step=10,
             keep_checkpoint_max_num=4,
-            load_dir=self.save_dir,
+            load_dir=self.load_dir,
         )
         #print(history.history)
 
+    def test_dist_save_load(self):
+        file_dir = os.path.dirname(os.path.abspath(__file__))
+        launch_model_path = os.path.join(file_dir, "engine_load_train.py")
+
+        if os.environ.get("WITH_COVERAGE", "OFF") == "ON":
+            coverage_args = ["-m", "coverage", "run", "--branch", "-p"]
+        else:
+            coverage_args = []
+
+        tmp_dir = tempfile.TemporaryDirectory()
+        cmd = (
+            [sys.executable, "-u"]
+            + coverage_args
+            + [
+                "-m",
+                "paddle.distributed.launch",
+                "--devices",
+                "0,1",
+                "--log_dir",
+                tmp_dir.name,
+                launch_model_path,
+            ]
+        )
+
+        process = subprocess.Popen(cmd)
+        process.wait()
+        self.assertEqual(process.returncode, 0)
+
+        tmp_dir.cleanup()
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,6 +34,8 @@ from .process_mesh import ProcessMesh
 OpRole = core.op_proto_and_checker_maker.OpRole
 OP_ROLE_KEY = core.op_proto_and_checker_maker.kOpRoleAttrName()
 
+CheckpointMetaName = "latest_checkpoint.pdmeta"
+
 __no_shape_var_type__ = [
     core.VarDesc.VarType.READER,
     core.VarDesc.VarType.STEP_SCOPES,
@@ -2388,7 +2390,7 @@ def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
 
 def _get_checkpoint_directory(file_dir):
     checkpoint_dir_list = os.listdir(file_dir)
-    checkpoint_dir_list = list(filter(lambda x: x != "latest_checkpoint.txt", checkpoint_dir_list))
+    checkpoint_dir_list = list(filter(lambda x: x != CheckpointMetaName, checkpoint_dir_list))
     if len(checkpoint_dir_list) == 0:
         return None
     return checkpoint_dir_list
@@ -2407,8 +2409,9 @@ def _get_checkpoint_prefix(file_dir):
     return file_prefix_map
 
 
-def get_latest_checkpoint_timestamp(file_dir, rank_size):
+def get_latest_checkpoint_prefix(file_dir, rank_size):
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
+    print(f"debug utils checkpoint_dir_list: {checkpoint_dir_list}")
     if checkpoint_dir_list is None:
         return None
     checkpoint_dir_list.sort(reverse=True) 
@@ -2428,6 +2431,9 @@ def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
     print(f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
     for checkpoint_dir in checkpoint_dir_list[keep_checkpoint_max_num:]:
         rmdir = os.path.join(file_dir, checkpoint_dir)
-        shutil.rmtree(rmdir)
         print(f"remove older directory: {rmdir}")
+        shutil.rmtree(rmdir)
     return True
+
+def get_checkpoint_meta_path(checkpoint_meta_dir):
+    return os.path.join(checkpoint_meta_dir, CheckpointMetaName) 

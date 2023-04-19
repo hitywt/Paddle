@@ -18,6 +18,8 @@ import logging
 import numbers
 import os
 import random
+import time
+import pickle
 
 import numpy as np
 
@@ -174,7 +176,10 @@ class Engine:
             raise TypeError(
                 "'strategy' must be object of class `paddle.distributed.auto_parallel.Strategy`"
             )
+        print(f"debug class Engine args strategy: {strategy}")
         self._strategy = strategy or Strategy()
+        self._strategy.seed = 100
+        print(f"debug class Engine initialized strategy: {self._strategy}")
 
         self._logger = get_logger(logging.INFO)
 
@@ -801,6 +806,7 @@ class Engine:
                     process_group.instantiate()
 
     def _initialize(self, mode):
+        print(f"debug engine _initialize begin")
         self._place = _get_device()
         if isinstance(self._place, paddle.framework.CUDAPlace):
             self._place = paddle.framework.CUDAPlace(
@@ -810,6 +816,7 @@ class Engine:
         def load_rng_state():
             rng_state = self._checkpoint_meta.get("rng_state", None)
             if rng_state is not None:
+                print(f"debug engine load_rng_state rng_state success")
                 if "paddle_rng_state" not in rng_state:
                     return False
                 paddle_rng_state = rng_state.get("paddle_rng_state", None)
@@ -829,24 +836,21 @@ class Engine:
                     return False
                 random_rng_state = rng_state.get("random_rng_state")
                 random.setstate(random_rng_state)
-
                 return True
             return False
 
+        print(f"debug engine strategy seed: {self._strategy.seed}")
         if self._strategy.seed and not load_rng_state():
+            print(f"debug engine initialize load_rng_state failed")
             paddle.seed(self._strategy.seed + self._dp_ranks[0])
             np.random.seed(self._strategy.seed + self._dp_ranks[0])
             random.seed(self._strategy.seed + self._dp_ranks[0])
-            self._checkpoint_meta.update(
-                {
-                    "rng_state": {
-                        "paddle_rng_state": paddle.get_rng_state(),
-                        "cuda_rng_state": paddle.get_cuda_rng_state(),
-                        "np_rng_state": np.random.getstate(),
-                        "random_rng_state": random.getstate(),
-                    }
-                }
-            )
+            self._checkpoint_meta["rng_state"] = {
+                "paddle_rng_state": paddle.get_rng_state(),
+                "cuda_rng_state": paddle.get_cuda_rng_state(),
+                "np_rng_state": np.random.get_state(),
+                "random_rng_state": random.getstate(),
+            }
 
         dist_context = self._dist_contexts[mode]
         if self._dygraph_mode:
@@ -969,23 +973,34 @@ class Engine:
                            epochs=2,
                            batch_size=64)
         """
-
-        start_step = 0
-        start_epoch = 0
-
         print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}")
         print(f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}")
-        def get_latest_checkpoint_prefix(load_dir):
-            # get latest checkpoint from all rank checkpoint
-            latest_checkpoint_path = os.path.join(
-                load_dir, "latest_checkpoint.txt"
-            )
+        if load_dir is not None:
+            def get_latest_checkpoint_prefix(load_dir):
+                # get latest checkpoint from all rank checkpoint
+                checkpoint_meta_path = auto_utils.get_checkpoint_meta_path(load_dir)
+                if not os.path.exists(checkpoint_meta_path):
+                    return None
+                with open(checkpoint_meta_path, "rb") as robj:
+                    checkpoint_meta = pickle.load(robj)
+                    #self._checkpoint_meta = json.loads(robj.read())
+                    self._checkpoint_meta.update(checkpoint_meta)
 
-            if os.path.exists(latest_checkpoint_path):
-                with open(latest_checkpoint_path, "r") as robj:
-                    latest_checkpoint = json.loads(robj.read())
-                    self._checkpoint_meta.update(latest_checkpoint)
-            print(f"debug engine latest_checkpoint before: {self._checkpoint_meta}")
+                rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
+                file_path = auto_utils.get_latest_checkpoint_prefix(
+                    load_dir, rank_size
+                )
+                print(f"debug latest checkpoint meta: {self._checkpoint_meta}")
+                return file_path
+
+            latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
+            if latest_checkpoint_prefix is not None:
+                self.load(latest_checkpoint_prefix)
+
+        def init_checkpoint_meta():
+            # in last batch, there sample trained but not recorded
+            start_step = self._checkpoint_meta.get("steps", 0) + self._checkpoint_meta.get("save_checkpoint_every_n_step", 0)
+            start_epoch = self._checkpoint_meta.get("epochs", 0)
             self._checkpoint_meta.update(
                {
                   "keep_checkpoint_max_num": keep_checkpoint_max_num,
@@ -993,23 +1008,11 @@ class Engine:
                   "save_checkpoint_every_n_epoch": save_freq,
                   "save_dir": save_dir,
                })
-            rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
-            start_step = self._checkpoint_meta.get("steps", 0)
-            start_epoch = self._checkpoint_meta.get("epochs", 0)
-            file_path = auto_utils.get_latest_checkpoint_timestamp(
-                load_dir, rank_size
-            )
-            print(f"debug engine latest_checkpoint after: {self._checkpoint_meta}, start_step: {start_step}, start_epoch: {start_epoch}, file_path: {file_path}")
-            return file_path, start_step, start_epoch
+            print(f"engine fit from start_epoch: {start_epoch}, start_step: {start_step}")
+            return start_step, start_epoch
 
-        if load_dir is not None:
-            latest_checkpoint_prefix, start_step, start_epoch = get_latest_checkpoint_prefix(load_dir)
-            print(f"debug engine latest_checkpoint_prefix: {latest_checkpoint_prefix}, load_dir: {load_dir}")
-            if latest_checkpoint_prefix is not None:
-                latest_checkpoint_prefix_path = os.path.join(load_dir, latest_checkpoint_prefix)
-                self.load(latest_checkpoint_prefix_path)
+        start_step, start_epoch = init_checkpoint_meta()
 
-        print(f"debug engine fit start train start_step: {start_step}, start_epoch: {start_epoch}")
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
             train_data, train_sample_split, batch_size
@@ -1031,7 +1034,6 @@ class Engine:
 
         fetch_names, fetch_indices = self._prepare_fetch(None, mode=self._mode)
 
-        print(f"debug engine fit config_callbacks checkpoint_meta: {self._checkpoint_meta}")
         cbks = config_callbacks(
             callbacks,
             engine=self,
@@ -1047,23 +1049,20 @@ class Engine:
             acc_step=self._k_steps,
         )
 
-        print(f"debug engine fit start_step: {start_step}, start_epoch: {start_epoch}, epochs: {epochs}")
+        print(f"debug engine fit start_step: {start_step}, start_epoch: {start_epoch}, target epochs: {epochs}")
         cbks.on_begin('train')
         logs = {}
         for epoch in range(epochs):
-            print(f"debug engint fit epoch: {epoch} begin")
-            if epoch < start_epoch:
-                continue
-            start_epoch = 0
-
             cbks.on_epoch_begin(epoch)
-            for step, _ in enumerate(train_dataloader):
-                print(f"debug engine fit step: {step} begin")
-                if step < start_step:
-                    continue
-                start_step = 0
+            if epoch < start_epoch:
+                #cbks.on_epoch_end(epoch, logs)
+                continue
 
+            for step, _ in enumerate(train_dataloader):
                 cbks.on_batch_begin('train', step, logs)
+                if epoch < start_epoch and step < start_step:
+                    #cbks.on_batch_end('train', step, logs)
+                    continue
                 try:
                     outs = self._executor.run(
                         self.main_program,
@@ -1083,8 +1082,9 @@ class Engine:
                     fetch_indices,
                     self._mode,
                 )
-                print(f"debug engine fit step: {step} end")
+                print(f"debug batch end step: {step}")
                 cbks.on_batch_end('train', step, logs)
+                time.sleep(0.5)
 
             if valid_data and (epoch + 1) % valid_freq == 0:
                 val_logs = self.evaluate(
