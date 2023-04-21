@@ -13,11 +13,11 @@
 # limitations under the License.
 
 import os
-import sys
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
-import subprocess
 
 import numpy as np
 
@@ -151,7 +151,7 @@ class TestSaveLoad(unittest.TestCase):
 
 class TestDistSaveLoad(unittest.TestCase):
     def setUp(self):
-        #self.save_dir = tempfile.mkdtemp()
+        # self.save_dir = tempfile.mkdtemp()
         self.save_dir = "/tmp/test_save_load"
         self.load_dir = "/tmp/test_save_load"
         if not os.path.exists(self.save_dir):
@@ -200,7 +200,7 @@ class TestDistSaveLoad(unittest.TestCase):
             keep_checkpoint_max_num=4,
             load_dir=self.load_dir,
         )
-        #print(history.history)
+        # print(history.history)
 
     def test_dist_save_load(self):
         file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -231,6 +231,7 @@ class TestDistSaveLoad(unittest.TestCase):
         self.assertEqual(process.returncode, 0)
 
         tmp_dir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()
