@@ -10,9 +10,10 @@
 # distributed under the License is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
-# limitations under the License
+# limitations under the License.
 
 import copy
+import functools
 import logging
 import os
 import shutil
@@ -2370,30 +2371,15 @@ def is_complete_checkpoint(file_list, rank_size, file_prefix="default"):
     return True
 
 
-def get_latest_checkpoint_prefix(file_list, max_epoch, max_step, rank_size):
-    file_prefix = None
-    final_prefix = "final"
-    succ, rank = is_complete_checkpoint(file_list, rank_size, final_prefix)
-    if succ:
-        return final_prefix, None, f"dist{rank}"
-    for e in range(max_epoch - 1, -1, -1):
-        epoch_prefix = f"epoch{e}"
-        for s in range(max_step - 1, -1, -1):
-            step_prefix = f"step{s}"
-            file_prefix = f"{epoch_prefix}_{step_prefix}"
-            if is_complete_checkpoint(file_list, rank_size, file_prefix):
-                return file_prefix
-            else:
-                file_prefix = None
-    return file_prefix
-
-
 def _get_checkpoint_directory(file_dir):
     checkpoint_dir_list = os.listdir(file_dir)
-    checkpoint_dir_list = list(filter(lambda x: x != CheckpointMetaName, checkpoint_dir_list))
+    checkpoint_dir_list = list(
+        filter(lambda x: x != CheckpointMetaName, checkpoint_dir_list)
+    )
     if len(checkpoint_dir_list) == 0:
         return None
     return checkpoint_dir_list
+
 
 def _get_checkpoint_prefix(file_dir):
     file_list = os.listdir(file_dir)
@@ -2411,10 +2397,9 @@ def _get_checkpoint_prefix(file_dir):
 
 def get_latest_checkpoint_prefix(file_dir, rank_size):
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
-    print(f"debug utils checkpoint_dir_list: {checkpoint_dir_list}")
     if checkpoint_dir_list is None:
         return None
-    checkpoint_dir_list.sort(reverse=True) 
+    checkpoint_dir_list.sort(reverse=True)
     for checkpoint_dir in checkpoint_dir_list:
         checkpoint_dir_path = os.path.join(file_dir, checkpoint_dir)
         checkpoint_prefix_map = _get_checkpoint_prefix(checkpoint_dir_path)
@@ -2423,17 +2408,53 @@ def get_latest_checkpoint_prefix(file_dir, rank_size):
                 return os.path.join(checkpoint_dir_path, prefix)
     return None
 
-def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
+
+def update_checkpoint_filelist(file_dir, latest_path, keep_checkpoint_max_num):
+    def sort_by_epoch_step(x, y):
+        def get_epoch_step(e):
+            e = e.split("_")
+            epoch = int(e[0].split("epoch")[1])
+            step = int(e[1].split("step")[1])
+            return epoch, step
+
+        x_epoch, x_step = get_epoch_step(x)
+        y_epoch, y_step = get_epoch_step(y)
+        if x_epoch < y_epoch:
+            return 1
+        elif x_epoch > y_epoch:
+            return -1
+        else:
+            if x_step < y_step:
+                return 1
+            elif x_step > y_step:
+                return -1
+            return 0
+        return 0
+
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
-    if checkpoint_dir_list is None or len(checkpoint_dir_list) <= keep_checkpoint_max_num:
+    checkpoint_dir_list.sort(key=functools.cmp_to_key(sort_by_epoch_step))
+    reserved_dir_list = []
+    keep = False
+    for checkpoint_dir in checkpoint_dir_list:
+        if not keep and checkpoint_dir not in latest_path:
+            rmdir = os.path.join(file_dir, checkpoint_dir)
+            shutil.rmtree(rmdir)
+            print(f"remove newer directory: {rmdir}")
+        else:
+            keep = True
+            reserved_dir_list.append(checkpoint_dir)
+    checkpoint_dir_list = reserved_dir_list
+    if (
+        checkpoint_dir_list is None
+        or len(checkpoint_dir_list) <= keep_checkpoint_max_num
+    ):
         return None
-    checkpoint_dir_list.sort(reverse=True)
-    print(f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
     for checkpoint_dir in checkpoint_dir_list[keep_checkpoint_max_num:]:
         rmdir = os.path.join(file_dir, checkpoint_dir)
         print(f"remove older directory: {rmdir}")
         shutil.rmtree(rmdir)
     return True
 
+
 def get_checkpoint_meta_path(checkpoint_meta_dir):
-    return os.path.join(checkpoint_meta_dir, CheckpointMetaName) 
+    return os.path.join(checkpoint_meta_dir, CheckpointMetaName)

@@ -13,11 +13,11 @@
 # limitations under the License.
 
 import os
-import sys
 import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
-import subprocess
 
 import numpy as np
 
@@ -151,22 +151,17 @@ class TestSaveLoad(unittest.TestCase):
 
 class TestDistSaveLoad(unittest.TestCase):
     def setUp(self):
-        #self.save_dir = tempfile.mkdtemp()
-        self.save_dir = "/tmp/test_save_load"
-        self.load_dir = "/tmp/test_save_load"
+        self.save_dir = tempfile.mkdtemp()
         if not os.path.exists(self.save_dir):
             os.mkdir(self.save_dir)
         transform = T.Compose([T.Transpose(), T.Normalize([127.5], [127.5])])
         self.train_dataset = MNIST(mode='train', transform=transform)
         self.test_dataset = MNIST(mode='test', transform=transform)
-        print(f'debug TestDistSaveLoad save_dir: {self.save_dir}')
         self.prepare_engine()
 
     def tearDown(self):
         if os.path.exists(self.save_dir):
             shutil.rmtree(self.save_dir)
-        if os.path.exists(self.load_dir):
-            shutil.rmtree(self.load_dir)
         pass
 
     def prepare_engine(self):
@@ -185,7 +180,7 @@ class TestDistSaveLoad(unittest.TestCase):
         metrics = paddle.metric.Accuracy(topk=(1, 2))
         self.engine = auto.Engine(model, loss, optimizer, metrics)
 
-    def itest_single_save_load(self):
+    def test_single_save_load(self):
         history = self.engine.fit(
             train_data=self.train_dataset,
             valid_data=self.test_dataset,
@@ -198,9 +193,9 @@ class TestDistSaveLoad(unittest.TestCase):
             save_freq=1,
             save_checkpoint_every_n_step=10,
             keep_checkpoint_max_num=4,
-            load_dir=self.load_dir,
+            load_dir=self.save_dir,
         )
-        #print(history.history)
+        print(history.history)
 
     def test_dist_save_load(self):
         file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -231,6 +226,7 @@ class TestDistSaveLoad(unittest.TestCase):
         self.assertEqual(process.returncode, 0)
 
         tmp_dir.cleanup()
+
 
 if __name__ == "__main__":
     unittest.main()

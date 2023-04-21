@@ -12,14 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import tempfile
 
 import numpy as np
 
 import paddle
 import paddle.nn.functional as F
-from paddle import nn, static, utils
+from paddle import nn
 from paddle.distributed.fleet import auto
 from paddle.io import Dataset
 
@@ -28,7 +27,7 @@ paddle.enable_static()
 global_process_mesh = auto.ProcessMesh(mesh=[0, 1])
 PP_MESH_0 = auto.ProcessMesh([0])
 PP_MESH_1 = auto.ProcessMesh([1])
-epoch_num = 1
+epoch_num = 4
 batch_size = 10
 batch_num = 50
 hidden_size = 1024
@@ -55,6 +54,7 @@ class MyDataset(Dataset):
 
     def __len__(self):
         return self.num_samples
+
 
 class MLPLayer(nn.Layer):
     def __init__(
@@ -128,28 +128,23 @@ def train(save_dir=None, load_dir=None):
 
     history = engine.fit(
         train_data=train_dataset,
-        epochs=2,
+        epochs=epoch_num,
         batch_size=batch_size,
         save_dir=save_dir,
         load_dir=load_dir,
         valid_data=eval_dataset1,
-        log_freq=1,
+        log_freq=20,
         save_checkpoint_every_n_step=10,
         keep_checkpoint_max_num=3,
     )
 
-def load_train():
-    #temp_dir = tempfile.TemporaryDirectory()
-    #save_dir = temp_dir.name
-    save_dir = "/tmp/test_save_dir1"
-    #train(save_dir=save_dir)
 
-    load_dir = save_dir
-    save_dir = "/tmp/test_save_dir2"
-    global batch_num
-    global_num=100
-    train(save_dir=save_dir, load_dir=load_dir)
-    #temp_dir.cleanup()
+def load_train():
+    temp_dir = tempfile.TemporaryDirectory()
+    train(save_dir=temp_dir.name, load_dir=temp_dir.name)
+
+    temp_dir.cleanup()
+
 
 if __name__ == "__main__":
     load_train()

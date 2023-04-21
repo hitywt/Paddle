@@ -17,9 +17,8 @@ import json
 import logging
 import numbers
 import os
-import random
-import time
 import pickle
+import random
 
 import numpy as np
 
@@ -52,6 +51,7 @@ from .parallelizer_v2 import Parallelizer
 from .planner_v2 import Planner
 from .process_group import get_all_process_groups, new_process_group
 from .strategy import Strategy
+
 
 class Engine:
     """
@@ -176,10 +176,7 @@ class Engine:
             raise TypeError(
                 "'strategy' must be object of class `paddle.distributed.auto_parallel.Strategy`"
             )
-        print(f"debug class Engine args strategy: {strategy}")
         self._strategy = strategy or Strategy()
-        self._strategy.seed = 100
-        print(f"debug class Engine initialized strategy: {self._strategy}")
 
         self._logger = get_logger(logging.INFO)
 
@@ -806,7 +803,6 @@ class Engine:
                     process_group.instantiate()
 
     def _initialize(self, mode):
-        print(f"debug engine _initialize begin")
         self._place = _get_device()
         if isinstance(self._place, paddle.framework.CUDAPlace):
             self._place = paddle.framework.CUDAPlace(
@@ -816,7 +812,6 @@ class Engine:
         def load_rng_state():
             rng_state = self._checkpoint_meta.get("rng_state", None)
             if rng_state is not None:
-                print(f"debug engine load_rng_state rng_state success")
                 if "paddle_rng_state" not in rng_state:
                     return False
                 paddle_rng_state = rng_state.get("paddle_rng_state", None)
@@ -839,9 +834,7 @@ class Engine:
                 return True
             return False
 
-        print(f"debug engine strategy seed: {self._strategy.seed}")
         if self._strategy.seed and not load_rng_state():
-            print(f"debug engine initialize load_rng_state failed")
             paddle.seed(self._strategy.seed + self._dp_ranks[0])
             np.random.seed(self._strategy.seed + self._dp_ranks[0])
             random.seed(self._strategy.seed + self._dp_ranks[0])
@@ -973,24 +966,25 @@ class Engine:
                            epochs=2,
                            batch_size=64)
         """
-        print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}")
-        print(f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}")
         if load_dir is not None:
+
             def get_latest_checkpoint_prefix(load_dir):
                 # get latest checkpoint from all rank checkpoint
-                checkpoint_meta_path = auto_utils.get_checkpoint_meta_path(load_dir)
+                checkpoint_meta_path = auto_utils.get_checkpoint_meta_path(
+                    load_dir
+                )
                 if not os.path.exists(checkpoint_meta_path):
                     return None
                 with open(checkpoint_meta_path, "rb") as robj:
                     checkpoint_meta = pickle.load(robj)
-                    #self._checkpoint_meta = json.loads(robj.read())
                     self._checkpoint_meta.update(checkpoint_meta)
 
-                rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
+                rank_size = self._checkpoint_meta.get(
+                    "rank_size", paddle.distributed.get_world_size()
+                )
                 file_path = auto_utils.get_latest_checkpoint_prefix(
                     load_dir, rank_size
                 )
-                print(f"debug latest checkpoint meta: {self._checkpoint_meta}")
                 return file_path
 
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
@@ -999,16 +993,21 @@ class Engine:
 
         def init_checkpoint_meta():
             # in last batch, there sample trained but not recorded
-            start_step = self._checkpoint_meta.get("steps", 0) + self._checkpoint_meta.get("save_checkpoint_every_n_step", 0)
+            start_step = self._checkpoint_meta.get(
+                "steps", 0
+            ) + self._checkpoint_meta.get("save_checkpoint_every_n_step", 0)
             start_epoch = self._checkpoint_meta.get("epochs", 0)
             self._checkpoint_meta.update(
-               {
-                  "keep_checkpoint_max_num": keep_checkpoint_max_num,
-                  "save_checkpoint_every_n_step": save_checkpoint_every_n_step,
-                  "save_checkpoint_every_n_epoch": save_freq,
-                  "save_dir": save_dir,
-               })
-            print(f"engine fit from start_epoch: {start_epoch}, start_step: {start_step}")
+                {
+                    "keep_checkpoint_max_num": keep_checkpoint_max_num,
+                    "save_checkpoint_every_n_step": save_checkpoint_every_n_step,
+                    "save_checkpoint_every_n_epoch": save_freq,
+                    "save_dir": save_dir,
+                }
+            )
+            print(
+                f"engine fit from start_epoch: {start_epoch}, start_step: {start_step}"
+            )
             return start_step, start_epoch
 
         start_step, start_epoch = init_checkpoint_meta()
@@ -1049,19 +1048,18 @@ class Engine:
             acc_step=self._k_steps,
         )
 
-        print(f"debug engine fit start_step: {start_step}, start_epoch: {start_epoch}, target epochs: {epochs}")
         cbks.on_begin('train')
-        logs = {}
         for epoch in range(epochs):
+            logs = {}
             cbks.on_epoch_begin(epoch)
             if epoch < start_epoch:
-                #cbks.on_epoch_end(epoch, logs)
+                cbks.on_epoch_end(epoch, logs)
                 continue
 
             for step, _ in enumerate(train_dataloader):
                 cbks.on_batch_begin('train', step, logs)
-                if epoch < start_epoch and step < start_step:
-                    #cbks.on_batch_end('train', step, logs)
+                if epoch == start_epoch and step < start_step:
+                    cbks.on_batch_end('train', step, logs)
                     continue
                 try:
                     outs = self._executor.run(
@@ -1082,9 +1080,7 @@ class Engine:
                     fetch_indices,
                     self._mode,
                 )
-                print(f"debug batch end step: {step}")
                 cbks.on_batch_end('train', step, logs)
-                time.sleep(0.5)
 
             if valid_data and (epoch + 1) % valid_freq == 0:
                 val_logs = self.evaluate(
@@ -1105,7 +1101,6 @@ class Engine:
             else:
                 self._reset_metrics()
 
-            print(f"debug engint fit epoch: {epoch} end")
             cbks.on_epoch_end(epoch, logs)
 
         cbks.on_end('train', logs)
@@ -1168,7 +1163,6 @@ class Engine:
                 engine.evaluate(valid_dataset, batch_size=64)
 
         """
-        print(f"debug engine evaluate begin")
         self._mode = 'eval'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(
             valid_data, valid_sample_split, batch_size
@@ -1754,7 +1748,6 @@ class Engine:
                 engine.save("./my_model")
 
         """
-        print(f"debug engine save: {path}, {training}")
         if training:
             assert self._mode in self._dist_contexts
             dist_context = self._dist_contexts[self._mode]
@@ -1840,7 +1833,6 @@ class Engine:
                 engine.load("./my_model")
 
         """
-        print(f"debug engine load from path: {path}")
         self._strict = strict
         self._state_dict, self._dist_attr = self._saver.load(
             path, load_optimizer
