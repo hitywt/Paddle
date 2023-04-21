@@ -128,7 +128,7 @@ def train(save_dir=None, load_dir=None):
 
     history = engine.fit(
         train_data=train_dataset,
-        epochs=2,
+        epochs=epoch_num,
         batch_size=batch_size,
         save_dir=save_dir,
         load_dir=load_dir,
@@ -139,15 +139,14 @@ def train(save_dir=None, load_dir=None):
     )
 
 def load_train():
-    #temp_dir = tempfile.TemporaryDirectory()
-    #save_dir = temp_dir.name
-    save_dir = "/tmp/test_save_dir1"
-    #train(save_dir=save_dir)
+    load_dir = tempfile.TemporaryDirectory()
+    save_dir = tempfile.TemporaryDirectory()
+    load_dir = "/tmp/test_save_dir1"
+    train(save_dir=load_dir)
 
-    load_dir = save_dir
-    save_dir = "/tmp/test_save_dir2"
+    save_dir = "/tmp/test_save_dir1"
     global batch_num
-    global_num=100
+    batch_num = 100
     train(save_dir=save_dir, load_dir=load_dir)
     #temp_dir.cleanup()
 

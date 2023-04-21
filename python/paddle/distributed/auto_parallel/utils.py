@@ -18,6 +18,7 @@ import os
 import shutil
 import threading
 import warnings
+import functools
 from functools import reduce
 
 import numpy as np
@@ -2423,11 +2424,45 @@ def get_latest_checkpoint_prefix(file_dir, rank_size):
                 return os.path.join(checkpoint_dir_path, prefix)
     return None
 
-def update_checkpoint_filelist(file_dir, keep_checkpoint_max_num):
+def update_checkpoint_filelist(file_dir, latest_path, keep_checkpoint_max_num):
+    def sort_by_epoch_step(x, y):
+        def get_epoch_step(e):
+            e = e.split("_")
+            epoch = int(e[0].split("epoch")[1])
+            step = int(e[1].split("step")[1])
+            return epoch, step
+        x_epoch, x_step = get_epoch_step(x)
+        y_epoch, y_step = get_epoch_step(y)
+        if x_epoch < y_epoch:
+            return 1
+        elif x_epoch > y_epoch:
+            return -1
+        else:
+            if x_step < y_step:
+                return 1
+            elif x_step > y_step:
+                return -1
+            return 0
+        return 0
+
     checkpoint_dir_list = _get_checkpoint_directory(file_dir)
+    print(f"debug current checkpoint list1 before: {checkpoint_dir_list}, latest_path: {latest_path}")
+    checkpoint_dir_list.sort(key=functools.cmp_to_key(sort_by_epoch_step))
+    reserved_dir_list = []
+    print(f"debug current checkpoint list1 after: {checkpoint_dir_list}, latest_path: {latest_path}")
+    keep = False
+    for checkpoint_dir in checkpoint_dir_list:
+        if not keep and checkpoint_dir not in latest_path:
+            rmdir = os.path.join(file_dir, checkpoint_dir)
+            shutil.rmtree(rmdir)
+            print(f"remove newer directory: {rmdir}")
+        else:
+            keep = True
+            reserved_dir_list.append(checkpoint_dir)
+    checkpoint_dir_list = reserved_dir_list
+    print(f"debug current checkpoint list2: {checkpoint_dir_list}, latest_path: {latest_path}")
     if checkpoint_dir_list is None or len(checkpoint_dir_list) <= keep_checkpoint_max_num:
         return None
-    checkpoint_dir_list.sort(reverse=True)
     print(f"debug current checkpoint num: {len(checkpoint_dir_list)}, prefix: {file_dir}, directory: {checkpoint_dir_list}, keep_checkpoint_max_num: {keep_checkpoint_max_num}")
     for checkpoint_dir in checkpoint_dir_list[keep_checkpoint_max_num:]:
         rmdir = os.path.join(file_dir, checkpoint_dir)

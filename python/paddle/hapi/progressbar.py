@@ -69,7 +69,6 @@ class ProgressBar:
         self._start = time.time()
 
     def update(self, current_num, values={}):
-        print(f"debug progressbar update current_num: {current_num}, values: {values}")
         now = time.time()
 
         def convert_uint16_to_float(in_list):

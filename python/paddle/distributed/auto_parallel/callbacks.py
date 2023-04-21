@@ -291,9 +291,9 @@ class ModelCheckpointAuto(ModelCheckpoint):
     def _save_checkpoint_meta(self, latest_checkpoint_path):
         # 保存ckpt、dataloader状态数据
         self._checkpoint_meta["latest_checkpoint_path"] = latest_checkpoint_path
-        with open(self.checkpoint_meta_path, "wb") as wobj:
-            pickle.dump(self._checkpoint_meta, wobj)
-            #wobj.write(f"{json.dumps(self._checkpoint_meta)}")
+        with open(self.checkpoint_meta_path, "w") as wobj:
+            #pickle.dump(self._checkpoint_meta, wobj)
+            wobj.write(f"{json.dumps(self._checkpoint_meta)}")
         return True
 
     def _is_save(self):
@@ -301,10 +301,14 @@ class ModelCheckpointAuto(ModelCheckpoint):
 
     def _save_checkpoint(self, path):
         self.model.save(path)
+
+        #if self._rank_size > 1:
+        #    paddle.distributed.barrier()
+        print(f"debug callbcks save checkpoint barrier, curr rank_id: {self._rank_id}")
         if self._rank_id == 0:
             self._save_checkpoint_meta(path)
             auto_utils.update_checkpoint_filelist(
-                self.save_dir, self.keep_checkpoint_max_num
+                self.save_dir, path, self.keep_checkpoint_max_num
             )
 
     def _get_timestamp(self):
@@ -312,18 +316,18 @@ class ModelCheckpointAuto(ModelCheckpoint):
         return time.strftime("%Y%m%d%H%M%S", time.localtime(now))
 
     def on_train_batch_end(self, step, logs=None):
-        self.steps = step+1
+        self.steps = step
         if (
             self._is_save()
             and self.save_checkpoint_every_n_step is not None
-            and self.steps % self.save_checkpoint_every_n_step == 0
+            and (self.steps + 1) % self.save_checkpoint_every_n_step == 0
         ):
             path = f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)
 
     def on_epoch_end(self, epoch, logs=None):
-        self.epochs = epoch+1
+        self.epochs = epoch
         """
         if self._is_save() and self.epochs % self.save_freq == 0:
             path = f'{self.save_dir}/epoch{epoch}'
@@ -335,6 +339,6 @@ class ModelCheckpointAuto(ModelCheckpoint):
         print(f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}")
         if self._is_save():
             print(f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}")
-            path = f"{self.save_dir}/epoch{self.epochs-1}_step{self.steps}/default"
+            path = f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
             print(f'save checkpoint at {os.path.abspath(path)}')
             self._save_checkpoint(path)

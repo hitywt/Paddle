@@ -178,7 +178,7 @@ class Engine:
             )
         print(f"debug class Engine args strategy: {strategy}")
         self._strategy = strategy or Strategy()
-        self._strategy.seed = 100
+        #self._strategy.seed = 100
         print(f"debug class Engine initialized strategy: {self._strategy}")
 
         self._logger = get_logger(logging.INFO)
@@ -753,6 +753,8 @@ class Engine:
         # to guarantee that train/eval/predict mode have same parallel strategy
         dist_context = self._dist_contexts[mode]
         origin_main_prog = dist_context._original_serial_main_program
+        with open("origin_main_prog.pbtxt", "w") as wobj:
+            wobj.write(f"{origin_main_prog.to_string(True)}")
         ref_mode = self._planned_mode
         ref_dist_context = self._dist_contexts[ref_mode]
         ref_origin_main_prog = ref_dist_context._original_serial_main_program
@@ -962,9 +964,9 @@ class Engine:
                 checkpoint_meta_path = auto_utils.get_checkpoint_meta_path(load_dir)
                 if not os.path.exists(checkpoint_meta_path):
                     return None
-                with open(checkpoint_meta_path, "rb") as robj:
-                    checkpoint_meta = pickle.load(robj)
-                    #self._checkpoint_meta = json.loads(robj.read())
+                with open(checkpoint_meta_path, "r") as robj:
+                    #checkpoint_meta = pickle.load(robj)
+                    checkpoint_meta = json.loads(robj.read())
                     self._checkpoint_meta.update(checkpoint_meta)
 
                 rank_size = self._checkpoint_meta.get("rank_size", paddle.distributed.get_world_size())
@@ -1036,13 +1038,13 @@ class Engine:
         for epoch in range(epochs):
             cbks.on_epoch_begin(epoch)
             if epoch < start_epoch:
-                #cbks.on_epoch_end(epoch, logs)
+                cbks.on_epoch_end(epoch, logs)
                 continue
 
             for step, _ in enumerate(train_dataloader):
                 cbks.on_batch_begin('train', step, logs)
-                if epoch < start_epoch and step < start_step:
-                    #cbks.on_batch_end('train', step, logs)
+                if epoch == start_epoch and step < start_step:
+                    cbks.on_batch_end('train', step, logs)
                     continue
                 try:
                     outs = self._executor.run(
