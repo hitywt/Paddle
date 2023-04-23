@@ -176,7 +176,6 @@ class Engine:
             raise TypeError(
                 "'strategy' must be object of class `paddle.distributed.auto_parallel.Strategy`"
             )
-        print(f"debug class Engine args strategy: {strategy}")
         self._strategy = strategy or Strategy()
         # self._strategy.seed = 100
         print(f"debug class Engine initialized strategy: {self._strategy}")
@@ -789,7 +788,6 @@ class Engine:
                     process_group.instantiate()
 
     def _initialize(self, mode):
-        print("debug engine _initialize begin")
         self._place = _get_device()
         if isinstance(self._place, paddle.framework.CUDAPlace):
             self._place = paddle.framework.CUDAPlace(
@@ -799,7 +797,6 @@ class Engine:
         def load_rng_state():
             rng_state = self._checkpoint_meta.get("rng_state", None)
             if rng_state is not None:
-                print("debug engine load_rng_state rng_state success")
                 if "paddle_rng_state" not in rng_state:
                     return False
                 paddle_rng_state = rng_state.get("paddle_rng_state", None)
@@ -822,9 +819,7 @@ class Engine:
                 return True
             return False
 
-        print(f"debug engine strategy seed: {self._strategy.seed}")
         if self._strategy.seed and not load_rng_state():
-            print("debug engine initialize load_rng_state failed")
             paddle.seed(self._strategy.seed + self._dp_ranks[0])
             np.random.seed(self._strategy.seed + self._dp_ranks[0])
             random.seed(self._strategy.seed + self._dp_ranks[0])
@@ -956,10 +951,6 @@ class Engine:
                            epochs=2,
                            batch_size=64)
         """
-        print(f"debug engine fit save_dir: {save_dir}, load_dir: {load_dir}, rank_id: {self._cur_rank}")
-        print(
-            f"debug engine fit data_size: {len(train_data)}, batch_size: {batch_size}, train_data: {train_data}"
-        )
         if load_dir is not None:
 
             def get_latest_checkpoint_prefix(load_dir):
@@ -980,7 +971,6 @@ class Engine:
                 file_path = auto_utils.get_latest_checkpoint_prefix(
                     load_dir, rank_size
                 )
-                print(f"debug latest checkpoint meta: {self._checkpoint_meta}")
                 return file_path
 
             latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
@@ -1044,21 +1034,16 @@ class Engine:
             acc_step=self._k_steps,
         )
 
-        print(
-            f"debug engine fit start_step: {start_step}, start_epoch: {start_epoch}, target epochs: {epochs}"
-        )
         cbks.on_begin('train')
         logs = {}
         for epoch in range(epochs):
             cbks.on_epoch_begin(epoch)
-            print(f"debug iter epoch: {epoch}, start_epoch: {start_epoch}")
             if epoch < start_epoch:
                 cbks.on_epoch_end(epoch, logs)
                 continue
 
             for step, _ in enumerate(train_dataloader):
                 cbks.on_batch_begin('train', step, logs)
-                print(f"debug iter step: {step}, start_step: {start_step},  epoch: {epoch}, start_epoch: {start_epoch}")
                 if epoch == start_epoch and step < start_step:
                     cbks.on_batch_end('train', step, logs)
                     continue
@@ -1081,7 +1066,6 @@ class Engine:
                     fetch_indices,
                     self._mode,
                 )
-                print(f"debug batch end step: {step}")
                 cbks.on_batch_end('train', step, logs)
                 time.sleep(0.5)
 
@@ -1104,7 +1088,6 @@ class Engine:
             else:
                 self._reset_metrics()
 
-            print(f"debug engint fit epoch: {epoch} end")
             cbks.on_epoch_end(epoch, logs)
 
         cbks.on_end('train', logs)
@@ -1752,7 +1735,6 @@ class Engine:
                 engine.save("./my_model")
 
         """
-        print(f"debug engine save rank: {self._cur_rank}, {path}, {training}")
         if training:
             assert self._mode in self._dist_contexts
             dist_context = self._dist_contexts[self._mode]
@@ -1838,7 +1820,6 @@ class Engine:
                 engine.load("./my_model")
 
         """
-        print(f"debug engine load from path: {path}")
         self._strict = strict
         self._state_dict, self._dist_attr = self._saver.load(
             path, load_optimizer

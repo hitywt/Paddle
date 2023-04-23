@@ -53,7 +53,6 @@ def config_callbacks(
     if not any(isinstance(k, LRScheduler) for k in cbks):
         cbks = [LRSchedulerAuto()] + cbks
 
-    print(f"debug config_callbacks save_dir: {save_dir}")
     if not any(isinstance(k, ModelCheckpoint) for k in cbks):
         cbks = cbks + [
             # ModelCheckpointAuto( **{ "save_freq": save_freq, "save_dir": save_dir, "latest_checkpoint_meta": latest_checkpoint_meta }
@@ -83,7 +82,6 @@ def config_callbacks(
                 latest_checkpoint_meta=latest_checkpoint_meta,
             )
 
-    print(f"debug config_callbacks: {cbks}")
     cbk_list = CallbackList(cbks)
     cbk_list.set_model(engine)
     metrics = metrics or [] if mode != 'test' else []
@@ -95,7 +93,6 @@ def config_callbacks(
         'metrics': metrics,
         'acc_step': acc_step,
     }
-    print("debug callbacks History on_epoch_end: begin log")
     cbk_list.set_params(params)
     return cbk_list
 
@@ -233,7 +230,6 @@ class Profiler(Callback):
     def on_train_batch_end(self, step, logs=None):
         self.train_step += 1
         self.prof.step(num_samples=self.batch_size)
-        print("debug callbacks profile, on_train_batch_end")
         print(
             "step {}:{}".format(
                 self.train_step, self.prof.step_info(unit='samples')
@@ -314,9 +310,6 @@ class ModelCheckpointAuto(ModelCheckpoint):
 
         # if self._rank_size > 1:
         #    paddle.distributed.barrier()
-        print(
-            f"debug callbcks save checkpoint barrier, curr rank_id: {self._rank_id}"
-        )
         if self._rank_id == 0:
             self._save_checkpoint_meta(path)
             auto_utils.update_checkpoint_filelist(
@@ -355,13 +348,7 @@ class ModelCheckpointAuto(ModelCheckpoint):
         """
 
     def on_train_end(self, logs=None):
-        print(
-            f"debug callbacks ModelCheckpoint on_train_end begin, is_save: {self._is_save()}"
-        )
         if self._is_save():
-            print(
-                f"debug callbacks ModelCheckpoint on_train_end save: {self.save_dir}"
-            )
             path = (
                 f"{self.save_dir}/epoch{self.epochs}_step{self.steps}/default"
             )
