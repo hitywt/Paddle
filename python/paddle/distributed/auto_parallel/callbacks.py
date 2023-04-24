@@ -17,7 +17,7 @@ import pickle
 import time
 
 import paddle
-import paddle.distributed.auto_parallel.utils as auto_utils
+from paddle.distributed.auto_parallel import dist_checkpoint
 from paddle.hapi.callbacks import (
     Callback,
     CallbackList,
@@ -247,6 +247,10 @@ class ModelCheckpointAuto(ModelCheckpoint):
             save_dir = self._checkpoint_meta.get("save_dir", None)
         super().__init__(save_freq=save_freq, save_dir=save_dir)
         self._rank_id = paddle.distributed.get_rank()
+        self._local_rank_id = os.getenv("PADDLE_LOCAL_RANK")
+        self._local_rank_id = (
+            0 if self._local_rank_id is None else int(self._local_rank_id)
+        )
         self._rank_size = paddle.distributed.get_world_size()
 
     @property
@@ -285,7 +289,7 @@ class ModelCheckpointAuto(ModelCheckpoint):
     def checkpoint_meta_path(self):
         latest_ckpt_path = None
         if self.save_dir:
-            latest_ckpt_path = auto_utils.get_checkpoint_meta_path(
+            latest_ckpt_path = dist_checkpoint.get_checkpoint_meta_path(
                 self.save_dir
             )
         return latest_ckpt_path
@@ -302,9 +306,12 @@ class ModelCheckpointAuto(ModelCheckpoint):
     def _save_checkpoint(self, path):
         self.model.save(path)
 
-        if self._rank_id == 0:
+        rank_id = self._local_rank_id
+        if path.startswith("hdfs://") or path.startswith("afs://"):
+            rank_id = self._rank_id
+        if rank_id == 0:
             self._save_checkpoint_meta(path)
-            auto_utils.update_checkpoint_filelist(
+            dist_checkpoint.update_checkpoint_filelist(
                 self.save_dir, path, self.keep_checkpoint_max_num
             )
 

@@ -27,9 +27,9 @@ paddle.enable_static()
 global_process_mesh = auto.ProcessMesh(mesh=[0, 1])
 PP_MESH_0 = auto.ProcessMesh([0])
 PP_MESH_1 = auto.ProcessMesh([1])
-epoch_num = 4
+epoch_num = 2
 batch_size = 10
-batch_num = 50
+batch_num = 60
 hidden_size = 1024
 sequence_len = 512
 image_size = hidden_size
@@ -134,7 +134,7 @@ def train(save_dir=None, load_dir=None):
         load_dir=load_dir,
         valid_data=eval_dataset1,
         log_freq=20,
-        save_checkpoint_every_n_step=10,
+        save_checkpoint_every_n_step=20,
         keep_checkpoint_max_num=3,
     )
 

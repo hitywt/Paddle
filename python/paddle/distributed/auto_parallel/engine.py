@@ -26,6 +26,7 @@ import paddle
 import paddle.distributed.auto_parallel.utils as auto_utils
 from paddle import static, utils
 from paddle.distributed import fleet
+from paddle.distributed.auto_parallel import dist_checkpoint
 from paddle.fluid.executor import _to_name_str
 from paddle.framework import IrGraph
 from paddle.framework import _current_expected_place as _get_device
@@ -802,6 +803,47 @@ class Engine:
                         continue
                     process_group.instantiate()
 
+    def _init_checkpoint(self, load_dir):
+        checkpoint_meta_path = dist_checkpoint.get_checkpoint_meta_path(
+            load_dir
+        )
+        # TODO currently user guarantees alignment of checkpoint versions on multiple machines,
+        # support automatic alignment in the future
+        if os.path.exists(checkpoint_meta_path):
+            with open(checkpoint_meta_path, "rb") as robj:
+                checkpoint_meta = pickle.load(robj)
+                self._checkpoint_meta.update(checkpoint_meta)
+
+        local_rank_size = os.getenv("PADDLE_LOCAL_SIZE")
+        if local_rank_size is not None:
+            local_rank_size = int(local_rank_size)
+
+        rank_size = self._checkpoint_meta.get("rank_size", local_rank_size)
+        checkpoint_path = dist_checkpoint.get_latest_checkpoint_prefix(
+            load_dir, rank_size
+        )
+
+        start_epoch = 0
+        start_step = 0
+        if checkpoint_path is not None:
+            self.load(checkpoint_path)
+
+            def get_step_epoch(file_path):
+                file_dir = file_path.strip().split("/")
+                file_dir = file_dir[-2]
+                file_dir = file_dir.split("_")
+                epoch = int(file_dir[0].split("epoch")[1])
+                step = int(file_dir[1].split("step")[1])
+                return epoch, step
+
+            start_epoch, start_step = get_step_epoch(checkpoint_path)
+            self._checkpoint_meta["epochs"] = start_epoch
+            self._checkpoint_meta[
+                "steps"
+            ] = start_step + self._checkpoint_meta.get(
+                "save_checkpoint_every_n_step", 0
+            )
+
     def _initialize(self, mode):
         self._place = _get_device()
         if isinstance(self._place, paddle.framework.CUDAPlace):
@@ -967,36 +1009,7 @@ class Engine:
                            batch_size=64)
         """
         if load_dir is not None:
-
-            def get_latest_checkpoint_prefix(load_dir):
-                # get latest checkpoint from all rank checkpoint
-                checkpoint_meta_path = auto_utils.get_checkpoint_meta_path(
-                    load_dir
-                )
-                if not os.path.exists(checkpoint_meta_path):
-                    return None
-                with open(checkpoint_meta_path, "rb") as robj:
-                    checkpoint_meta = pickle.load(robj)
-                    self._checkpoint_meta.update(checkpoint_meta)
-
-                rank_size = self._checkpoint_meta.get(
-                    "rank_size", paddle.distributed.get_world_size()
-                )
-                file_path = auto_utils.get_latest_checkpoint_prefix(
-                    load_dir, rank_size
-                )
-                return file_path
-
-            latest_checkpoint_prefix = get_latest_checkpoint_prefix(load_dir)
-            if latest_checkpoint_prefix is not None:
-                self.load(latest_checkpoint_prefix)
-
-        def init_checkpoint_meta():
-            # in last batch, there sample trained but not recorded
-            start_step = self._checkpoint_meta.get(
-                "steps", 0
-            ) + self._checkpoint_meta.get("save_checkpoint_every_n_step", 0)
-            start_epoch = self._checkpoint_meta.get("epochs", 0)
+            self._init_checkpoint(load_dir)
             self._checkpoint_meta.update(
                 {
                     "keep_checkpoint_max_num": keep_checkpoint_max_num,
@@ -1005,12 +1018,11 @@ class Engine:
                     "save_dir": save_dir,
                 }
             )
-            print(
-                f"engine fit from start_epoch: {start_epoch}, start_step: {start_step}"
-            )
-            return start_step, start_epoch
-
-        start_step, start_epoch = init_checkpoint_meta()
+        start_epoch = self._checkpoint_meta.get("epochs", 0)
+        start_step = self._checkpoint_meta.get("steps", 0)
+        print(
+            f"init checkpoint start_epoch: {start_epoch}, start_step: {start_step}"
+        )
 
         self._mode = 'train'
         self._inputs_spec, self._labels_spec = self._prepare_data_spec(

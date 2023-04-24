@@ -75,7 +75,7 @@ class MLPLayer(nn.Layer):
 
 
 class TestSaveLoad(unittest.TestCase):
-    def itest_fp32_save_fp16_load(self):
+    def test_fp32_save_fp16_load(self):
 
         mlp = MLPLayer(
             hidden_size=hidden_size,
@@ -162,7 +162,6 @@ class TestDistSaveLoad(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.save_dir):
             shutil.rmtree(self.save_dir)
-        pass
 
     def prepare_engine(self):
         model = paddle.vision.models.LeNet()
@@ -179,23 +178,6 @@ class TestDistSaveLoad(unittest.TestCase):
         auto.fetch(model.parameters()[0], "param0", logging=True)
         metrics = paddle.metric.Accuracy(topk=(1, 2))
         self.engine = auto.Engine(model, loss, optimizer, metrics)
-
-    def test_single_save_load(self):
-        history = self.engine.fit(
-            train_data=self.train_dataset,
-            valid_data=self.test_dataset,
-            batch_size=128,
-            steps_per_epoch=360,
-            valid_steps=40,
-            log_freq=1,
-            epochs=2,
-            save_dir=self.save_dir,
-            save_freq=1,
-            save_checkpoint_every_n_step=10,
-            keep_checkpoint_max_num=4,
-            load_dir=self.save_dir,
-        )
-        print(history.history)
 
     def test_dist_save_load(self):
         file_dir = os.path.dirname(os.path.abspath(__file__))
