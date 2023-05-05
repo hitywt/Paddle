@@ -126,10 +126,12 @@ def get_dist_prog(train_program, startup_program, dist_context, rank_id):
     fleet._user_defined_strategy = fleet.DistributedStrategy()
     fleet.user_defined_optimizer = paddle.fluid.optimizer.AdamOptimizer()
     parallelizer = AutoParallelizer(fleet)
+    # dist_context应该通过参数传递进去？
     parallelizer._dist_context = dist_context
 
     # serial forward & backward completion
     completer = Completer(dist_context)
+    # TODO 这一步train_program添加反向算子，complete_train_program只是前向图
     complete_train_program = completer.complete_forward_annotation(
         train_program
     )
@@ -142,6 +144,7 @@ def get_dist_prog(train_program, startup_program, dist_context, rank_id):
         no_grad_set=None,
         callbacks=None,
     )
+    # TODO params_grads是对应的前向和反向算子对
 
     # logical partition
     partitioner = Partitioner(dist_context, rank_id)

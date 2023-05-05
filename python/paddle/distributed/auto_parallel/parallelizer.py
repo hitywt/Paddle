@@ -145,6 +145,8 @@ class AutoParallelizer:
     ):
 
         with program_guard(main_program, startup_program):
+            # TODO params_grads是前向和反向算子元组对
+            # TODO 这里完成了反向算子的添加?
             params_grads = append_backward(
                 loss,
                 parameter_list,
@@ -152,13 +154,15 @@ class AutoParallelizer:
                 callbacks,
                 distop_context=self._dist_context.dist_op_context,
             )
+        # TODO _completer是这里才新增的attr字段，规范？
         self._completer = Completer(self._dist_context)
+        # TODO main_program是带了grad的program，complete_backward_annotation是给反向图添加分布式属性,和annotation没太大关系?
         self._completer.complete_backward_annotation(main_program)
         self._dist_context.block_state.parse_backward_blocks(main_program)
         return params_grads
 
     def _apply_optimize(self, main_program, startup_program, params_grads):
-
+        # 这里为什么要copy操作？
         optimizer = copy.deepcopy(self._optimizer)
         with program_guard(main_program, startup_program):
             optimize_ops = optimizer.apply_gradients(params_grads)
@@ -166,6 +170,7 @@ class AutoParallelizer:
         self._dist_context._serial_optimizer = optimizer
         # update completion
         self._completer = Completer(self._dist_context)
+        # TODO 更新main_program的中optimize的dist_attr，因为添加了optimize_op？
         self._completer.complete_update_annotation(main_program)
 
         return optimize_ops

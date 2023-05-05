@@ -90,11 +90,14 @@ class Partitioner:
         if serial_startup_program is None:
             partitioned_startup_prog = None
         else:
+            # TODO 生成partition_startup_prog将其中在main_program中的op和tensor替换为dist新op和tensor, 名称和startup中相同但dims做了dist切分
+            # 带了lod_level属性，是为什么？
             partitioned_startup_prog = self.partition_startup_program(
                 serial_main_program, serial_startup_program
             )
         dist_op_context.dst_startup_program = partitioned_startup_prog
 
+        # 切分main_program的tensor, op替换为dist op
         # partition main program
         (
             partitioned_main_prog,
@@ -183,6 +186,7 @@ class Partitioner:
         2. replace local op with corresponding dist op
         """
 
+        # TODO partitioned_main_prog是新的program
         partitioned_main_prog = paddle.framework.Program()
         dist_op_context = self._dist_context.dist_op_context
         dist_op_context.dst_main_program = partitioned_main_prog
@@ -311,11 +315,14 @@ class Partitioner:
                     ] = new_varname
 
             # partition op
+            # TODO op替换为dist op
             if is_forward_op(op) or op_dist_attr.is_recompute:
                 kinputs, koutputs = dist_op_context.prepare_context(op)
                 dist_op_forward_impl = _get_dist_op_forward_implement(
                     op, self._dist_context
                 )
+                # TODO 拼接其他通信算子，例如 dist_embedding.py中的forward添加c_embedding算子
+                # program中op_callstack中可以查看到算子拼接的代码调用路径
                 dist_op_forward_impl.forward(
                     self._dist_context, **kinputs, **koutputs
                 )
@@ -358,6 +365,7 @@ class Partitioner:
     def _is_valid_annotated_program(self, program):
 
         # TODO (ZJ-LIANG) should check all block
+        # TODO 全局block和普通block的区别
         ops = program.global_block().ops
         vars_ = program.list_vars()
         op_dist_attrs = [
@@ -488,6 +496,8 @@ def _partition_var(
     else:
         dist_attr = dist_context.get_tensor_dist_attr_for_program(src_var)
         target_shape = _get_dist_shape(src_var, dist_attr)
+        # TODO 根据dist_attr推导出src_var的分布式shape，对var进行切分.
+        # 主要利用的是dims_mapping和process_mesh信息
 
         if isinstance(src_var, Parameter):
             new_var = _partition_parameter(

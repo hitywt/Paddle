@@ -2353,6 +2353,7 @@ class Resharder:
                     # skip lod_tensor_blocking_queue_? name
                     if "lod_tensor_blocking_queue" in var_name:
                         continue
+                    # TODO recursion的用途是什么？为什么还可能去父block查找？
                     var = get_var_with_recursion(
                         var_name, block, self.auto_parallel_main_prog
                     )
@@ -2362,6 +2363,7 @@ class Resharder:
 
                     # judge whether union tensor dims_mapping all -1
                     is_union_process_mesh_tensor = False
+                    # TODO 如果dist_tensor的process_mesh不再dist_context中，那么必须全部是-1
                     if (
                         dist_tensor.dist_attr.process_mesh
                         not in self.dist_context.process_meshes
@@ -2676,6 +2678,7 @@ class Resharder:
                 idx += 1
 
     def reshard(self):
+        # TODO 删除了一些process_mesh，用途是什么？
         self._remove_global_process_mesh()
         for block_idx, block in enumerate(self.auto_parallel_main_prog.blocks):
             # change the var_name before resharding sub block

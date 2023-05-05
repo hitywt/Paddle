@@ -164,6 +164,7 @@ class Completer:
                 tensor_dist_attr.dims_mapping = compatible_dims_mapping
                 changed = True
         else:
+            # TODO 暂时没看
             dims_mapping_list = []
             for succ_op_node in tensor_node.outputs:
                 if succ_op_node.op() is not None:
@@ -439,6 +440,7 @@ class Completer:
         reach_fix_point = False
         while not reach_fix_point:
             changed = False
+            # TODO 前向和反向执行两次?
             for is_fwd in [True, False]:
                 all_nodes = (
                     self._dist_context.serial_ordered_nodes
@@ -453,11 +455,13 @@ class Completer:
                         if tensor_changed:
                             changed = True
                     if node.is_op() and node.op() is not None:
+                        # TODO 暂时没看
                         op_changed = self._update_op_node_dims_mapping(
                             node, fwd=is_fwd
                         )
                         if op_changed:
                             changed = True
+                # TODO 暂时没看
                 graph_changed = self._update_dims_mapping_between_graphs()
                 if graph_changed:
                     changed = True
@@ -466,6 +470,7 @@ class Completer:
             else:
                 reach_fix_point = True
         # NOTE: this will be removed after changing the reshard rule
+        # TODO 暂时没看
         self._update_dims_mapping_for_special()
 
     def _update_process_mesh_by_nearest(self, op_node, nearest_op_node):
@@ -766,6 +771,7 @@ class Completer:
                             nearest_tensor_dist_attr.process_mesh
                         )
 
+        # TODO 这一段整体有点模糊
         # Amend the process meshes related to array
         for array_node_list in self._array_nodes.values():
             merged_process_mesh = None
@@ -819,8 +825,10 @@ class Completer:
         ordered_tensor_nodes = self._dist_context._serial_ordered_tensor_nodes
         for tensor_node in ordered_tensor_nodes:
             tensor_dist_attr = (
+                # TODO 为什么不是从program中取？而一定要从graph中取，区别是什么, 为了保持拓扑序?
                 self._dist_context.get_tensor_dist_attr_for_graph(tensor_node)
             )
+            # TODO 从前往后打标，找到第一个打标的tensor？
             if not tensor_dist_attr.is_annotated("process_mesh"):
                 continue
             first_op_node = None
@@ -830,11 +838,13 @@ class Completer:
                 if op_node.op().type() == "while":
                     continue
                 for input_tensor_node in op_node.inputs:
+                    # TODO 找到input等于tensor_node的节点op_node作为first_op_node
                     if _node_id(tensor_node) == _node_id(input_tensor_node):
                         first_op_node = op_node
                         break
                 if first_op_node is not None:
                     break
+            # TODO 找到第一个op_node
             if first_op_node is None:
                 continue
             op_dist_attr = self._dist_context.get_dist_attr_for_graph(
@@ -843,6 +853,7 @@ class Completer:
             if op_dist_attr is not None and not op_dist_attr.is_annotated(
                 "process_mesh"
             ):
+                # TODO 找tensor和op兼容的process_mesh. 从后往前推到process_mesh?
                 compatible_process_mesh = compute_compatible_process_mesh(
                     [tensor_dist_attr.process_mesh, op_dist_attr.process_mesh]
                 )
@@ -855,6 +866,7 @@ class Completer:
         # Step 2: set the process meshes of ops with the nearest op before them
         # Step 2.1: find the first op node which has the process mesh
         idx_of_first_op_node_has_process_mesh = -1
+        # 填充op的process_mesh标记
         for idx, op_node in enumerate(ordered_op_nodes):
             op_dist_attr = self._dist_context.get_dist_attr_for_graph(op_node)
             if (
@@ -862,7 +874,8 @@ class Completer:
                 and idx_of_first_op_node_has_process_mesh == -1
             ):
                 idx_of_first_op_node_has_process_mesh = idx
-                # Reuse the following method to set the related tensors for same op node
+                # Reuse the followiong method to set the related tensors for same op node
+                # TODO 两个参数一样，nearest好像没有意义？第二个参数直接传None判断跳过即可？
                 self._update_process_mesh_by_nearest(op_node, op_node)
         # Step 2.2: set the process meshes of ops by the nearest op node after the first op node
         if idx_of_first_op_node_has_process_mesh + 1 > len(ordered_op_nodes):
@@ -871,6 +884,7 @@ class Completer:
             ordered_op_nodes[idx_of_first_op_node_has_process_mesh + 1 :]
         ):
             original_idx = idx_of_first_op_node_has_process_mesh + idx + 1
+            # TODO 找到从前往后，最近的一个op_node
             nearest_op_node = ordered_op_nodes[original_idx - 1]
             nearest_op_dist_attr = self._dist_context.get_dist_attr_for_graph(
                 nearest_op_node
@@ -882,13 +896,16 @@ class Completer:
         nearest_op_node = ordered_op_nodes[
             idx_of_first_op_node_has_process_mesh
         ]
+        # TODO 用nearest_op_node更新之前所有节点的process_mesh？
         for op_node in ordered_op_nodes[:idx_of_first_op_node_has_process_mesh]:
             self._update_process_mesh_by_nearest(op_node, nearest_op_node)
 
         # Step 3: adjust the process meshes for special ops
+        # TODO 逻辑没看太明白，反正是处理特殊算子的, while, array等
         self._update_process_mesh_for_specials()
 
         # Step 4: adjust the process meshes between graphs
+        # TODo 再看看，这个parent和child的关系!
         self._update_process_mesh_between_graphs()
 
     def _prepare(self):
@@ -896,6 +913,7 @@ class Completer:
             return
         self._while_op_nodes = {}
         self._array_nodes = {}
+        # TODO 具有相同tensor名称的node
         self._node_pairs_between_graphs = []
         all_nodes = self._dist_context.serial_ordered_nodes
         for idx, node in enumerate(all_nodes):
@@ -952,10 +970,12 @@ class Completer:
             self._update_process_mesh()
             self._update_dims_mapping()
             # Copy the corresponding distributed attribute from graph to serial_main_program
+            # TODO 所以构造graph只是为了拓扑遍历
             self._dist_context.copy_dist_attr_from_graph_to_program()
         else:
             self._logger.info("Default distributed attributed will be set.")
             self._dist_context.initialize(with_graph=False)
+            # TODO dp为什么不需要其他操作
             # A fast and special completion for data parallel
             self._update_dist_attr_for_dp()
 
@@ -963,6 +983,7 @@ class Completer:
         self._complete_high_order_grad_annotation(serial_main_program)
         # Do the validation check and amend some completion
         self._dist_context.amend_dist_attr_for_program()
+        # TODO 确保所有dist_tensor和dist_op非空
         self._dist_context.validate_dist_attr_for_program()
         return serial_main_program
 
@@ -997,7 +1018,7 @@ class Completer:
                     op_dist_attr.set_input_dims_mapping(
                         arg_name, dist_tensor.dist_attr.dims_mapping
                     )
-
+            # TODO 没细看
             op_dist_impls = find_compatible_distributed_operator_impls(
                 dist_op, fwd=True
             )
@@ -1295,7 +1316,6 @@ class Completer:
                     grad_op_dist_attr.set_output_dims_mapping(
                         output_name, ref_fwd_dims_mapping
                     )
-
                 elif grad_op.type == 'fill_any_like':
                     ref_var_name = grad_op.input_arg_names[0]
                     ref_var = vars[ref_var_name]
@@ -1324,13 +1344,13 @@ class Completer:
                     grad_op_dist_attr.set_output_dims_mapping(
                         output_var_name, ref_dims_mapping
                     )
-
                 elif grad_op.type in ['shape', 'fill_constant']:
                     continue
 
                 else:
                     raise ValueError(f"got unexpect op [{str(grad_op.type)}]")
 
+                # 使用其他scope的局部变量？grad_op_dist_attr
                 self._dist_context.set_op_dist_attr_for_program(
                     grad_op, grad_op_dist_attr
                 )
@@ -1367,6 +1387,7 @@ class Completer:
                 | int(core.op_proto_and_checker_maker.OpRole.Loss)
             ):
                 assert op.type == "fill_constant"
+                # TODO fill_constant是反向图的起点
                 first_backward_op_idx = idx
                 break
 
@@ -1385,6 +1406,7 @@ class Completer:
 
             # complete the initial grad loss op
             if idx == first_backward_op_idx:
+                # TODO 反向图第一个op一定是fill_contant
                 assert ops[idx].type == "fill_constant"
                 assert (
                     len(ops[idx].input_arg_names) == 0
@@ -1396,6 +1418,8 @@ class Completer:
                 ), "first backward op should has only ONE output, but got [{}]".format(
                     len(ops[idx].output_arg_names)
                 )
+                # TODO output_arg_names是arguments名称("mean_0.tmp_0@GRAD")， output是Tensor()，output_names是parameter("out")
+                # TODO 例如：Out=['mean_0.tmp_0@GRAD']} = fill_constant(inputs={}, ...）
 
                 grad_var = vars[ops[idx].output_arg_names[0]]
                 forward_var_name = _get_forward_varname_from_grad_varname(
@@ -1417,12 +1441,14 @@ class Completer:
                 )
                 tensor_dist_attr.dims_mapping = dims_mapping
                 tensor_dist_attr.process_mesh = process_mesh
+                # TODO 为grad_var Tensor添加dist_attr
                 self._dist_context.set_tensor_dist_attr_for_program(
                     grad_var, tensor_dist_attr
                 )
 
                 op_dist_attr = OperatorDistAttr()
                 op_dist_attr.process_mesh = process_mesh
+                # TODO 为grad_var op添加dist_attr
                 op_dist_attr.set_output_dims_mapping(
                     grad_var.name, dims_mapping
                 )
@@ -1498,6 +1524,8 @@ class Completer:
                 grad_op_dist_attr = OperatorDistAttr()
                 grad_op_dist_attr.process_mesh = fwd_op_process_mesh
 
+                # TODO 设置grad_op的input的dims_mapping
+                # TODO 从grad_op的输入op的前向op获取dims_mapping，设置为输入op的dims_mapping
                 for input_name in grad_op.input_arg_names:
                     if (
                         input_name not in forward_op.input_arg_names
@@ -1534,7 +1562,7 @@ class Completer:
                     grad_op_dist_attr.set_input_dims_mapping(
                         input_name, ref_dims_mapping
                     )
-
+                # TODO 设置grad_op的output的dims_mapping
                 for output_name in grad_op.output_arg_names:
                     assert output_name in grad_var_to_var
                     fwd_name = grad_var_to_var[output_name]
@@ -1553,13 +1581,15 @@ class Completer:
                     grad_op_dist_attr.set_output_dims_mapping(
                         output_name, ref_dims_mapping
                     )
-
+                # TODO impl_type是做什么用途的?
                 grad_op_dist_attr.impl_type = fwd_op_dist_attr.impl_type
                 grad_op_dist_attr.impl_idx = fwd_op_dist_attr.impl_idx
+                # TODO 设置grad_op的dist_attr
                 self._dist_context.set_op_dist_attr_for_program(
                     grad_op, grad_op_dist_attr
                 )
             # grad ops that have not a corresponding mapping in grad_op_id_to_op_id
+            # TODO 什么情况下会没有grad_op对应的前向op? sum/fill_any_like
             else:
                 if grad_op.type == 'sum':
                     assert all(map(_is_grad_var_name, grad_op.input_arg_names))

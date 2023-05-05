@@ -1417,10 +1417,12 @@ def _append_backward_ops_(
             grad_op_desc, op_grad_to_var = core.get_grad_op_desc(
                 op.desc, no_grad_dict[block.idx], grad_sub_block_list
             )
+            # TODO op_grad_to_var记录的是grad和fwd的op之间关系
 
         # record the mapping between fwd and bwd
         if grad_op_id_to_fwd_op is not None:
             for op_desc in grad_op_desc:
+                # TODO 这里不同的original_id可能有相同的op，即不同的bwd对应相同的fwd
                 grad_op_id_to_fwd_op[op_desc.original_id()] = op
 
         # Build the mapping between the forward op and backward op (Only for auto parallel)
@@ -2050,6 +2052,7 @@ def append_backward(
         )
 
         op_path_dict = dict()
+        # TODO loss的前置依赖算子路径,没有详细看实现
         op_path = _find_op_path_(
             block, [loss], [], block_no_grad_set, op_path_dict
         )
@@ -2059,6 +2062,7 @@ def append_backward(
         )
 
         block_no_grad_set.update(no_grad_vars)
+        # TODO 并未清空no_grad_dict, update是多余的操作？
         no_grad_dict[block_idx].update(
             list(map(_append_grad_suffix_, block_no_grad_set))
         )
@@ -2098,6 +2102,7 @@ def append_backward(
                 grad_op_id_to_fwd_op,
             )
         else:
+            # TODo 真正添加backward算子, 这里面逻辑要再看一下，细节非常多
             _append_backward_ops_(
                 block,  # the block where forward ops are in
                 op_path,
@@ -2125,6 +2130,7 @@ def append_backward(
     # Because append_backward may be called multiple times,
     # we need rename the internal gradient variables so that they have
     # different names.
+    # TODO 修改反向gradient变量的名称
     _rename_grad_(target_grad_block, fwd_op_num, grad_to_var, {}, [])
 
     _append_backward_vars_(
@@ -2132,9 +2138,11 @@ def append_backward(
     )
 
     program.current_block_idx = current_block_idx
+    # TODO 从py同步属性到cpp
     program._sync_with_cpp()
 
     # for cuda graph, copy the cuda graph attr from forward op to backward op
+    # TODO cuda graph是干啥的？
     for op in target_grad_block.ops:
         if grad_op_id_to_fwd_op.get(op.desc.original_id(), None) is not None:
             fwd_op = grad_op_id_to_fwd_op[op.desc.original_id()]

@@ -434,6 +434,7 @@ class DistributedContext:
 
             self._init_dist_attr_for_program(no_default)
             # Backup the original distributed information for later restore
+            # TODO上面init里已经copy了，这里重复了？
             self._original_dist_tensors_for_program = copy.deepcopy(
                 self._dist_tensors_for_program
             )
@@ -456,6 +457,7 @@ class DistributedContext:
                 self._init_dist_attr_for_graph()
                 self._need_copy_dist_attr_to_graph = False
 
+        # TODO 是init_dist_attr_for_graph失败了，才会执行？ 什么情况下会走到
         if self._need_copy_dist_attr_to_graph and with_graph:
             self.copy_dist_attr_from_program_to_graph()
 
@@ -477,6 +479,7 @@ class DistributedContext:
         self._dist_ops_for_program[inner_serial_op_id] = dist_op
 
     def get_dist_tensor_for_program(self, serial_tensor):
+        #  这里为什么先判断id在判断original_id？而不是反过来, 但存储的时候直接使用的original_id
         serial_tensor_id = serial_tensor.desc.id()
         dist_tensor = self._dist_tensors_for_program.get(serial_tensor_id, None)
         if dist_tensor:
@@ -886,6 +889,7 @@ class DistributedContext:
                 dist_op_for_program.dist_attr = op_dist_attr_for_graph
         # TODO: the completion algorithm will skipped orphan tensors,
         # here we just set there process_mesh to the first one.
+        # TODO 孤儿节点为什么也需要处理？
         for orphan_node in self._serial_orphan_tensor_nodes:
             serial_tensor_id = orphan_node.var().id()
             dist_tensor = self._dist_tensors_for_program.get(
@@ -913,6 +917,7 @@ class DistributedContext:
             process_mesh_processes = dist_attr.process_mesh.process_ids
             # If the dimension of tensor is less than the sharding dimension of process mesh,
             # we just amend the dimension mapping to -1. (Is this really OK?)
+            # TODO 什么原因导致的tensor的维度和process mesh维度对不齐
             for i in range(len(tensor_shape)):
                 if (
                     dims_mapping[i] != -1
