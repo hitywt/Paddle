@@ -181,7 +181,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllReduce(
             comm_context,
             nullptr,
             phi::errors::Unavailable("NCCLCommContext is nullptr"));
-        comm_ctx->AllReduce(
+        comm_context->AllReduce(
             out_tensor, in_tensor, ToNCCLRedType(opts.reduce_op), stream);
       },
       in_tensor,
@@ -525,7 +525,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Recv(
             comm_context,
             nullptr,
             phi::errors::Unavailable("NCCLCommContext is nullptr"));
-        comm_ctx->Recv(tensor, peer, stream);
+        comm_context->Recv(tensor, src_rank, stream);
       },
       *tensor,
       CommType::RECV,
@@ -554,7 +554,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Send(
             comm_context,
             nullptr,
             phi::errors::Unavailable("NCCLCommContext is nullptr"));
-        comm_ctx->Send(tensor_maybe_partial, dst_rank, stream);
+        comm_context->Send(tensor_maybe_partial, dst_rank, stream);
       },
       tensor_maybe_partial,
       CommType::SEND,
