@@ -26,6 +26,16 @@
     func : all_reduce
     param: [x, reduce_type]
 
+- op : all_to_all
+  args : (Tensor x, int ring_id = 0)
+  output : Tensor(out)
+  infer_meta :
+    func : AllToAllInferMeta
+    param: [x, nranks]
+  kernel :
+    func : all_gather
+    param: [x, nranks]
+
 - op : arange
   args : (Tensor start, Tensor end, Tensor step)
   output : Tensor(out)

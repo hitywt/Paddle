@@ -62,6 +62,14 @@ class NCCLCommContext final : public CommContext {
               int root,
               gpuStream_t stream);
 
+  void GroupStart();
+
+  void GroupEnd();
+
+  void AllToAll(phi::DenseTensor* out_tensor,
+                const phi::DenseTensor& in_tensor,
+                gpuStream_t stream);
+
  private:
   DISABLE_COPY_AND_ASSIGN(NCCLCommContext);
 

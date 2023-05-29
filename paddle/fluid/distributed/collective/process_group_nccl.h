@@ -250,6 +250,8 @@ class ProcessGroupNCCL final : public ProcessGroupWithStream {
   void CreateNCCLManagerCache(const std::string& places_key,
                               const std::vector<Place>& places);
 
+  phi::distributed::CommContext* GetCommContext();
+
  private:
   std::shared_ptr<phi::distributed::Store> store_;
 
