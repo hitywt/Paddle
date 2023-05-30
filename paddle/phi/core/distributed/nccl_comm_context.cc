@@ -129,7 +129,7 @@ void NCCLCommContext::Send(const phi::DenseTensor& in_tensor,
 void NCCLCommContext::Recv(phi::DenseTensor* out_tensor,
                            const int& peer,
                            gpuStream_t stream) {
-  phi::distributed::CommStaticCheck::CheckShape(*tensor, rank_, size_);
+  phi::distributed::CommStaticCheck::CheckShape(*out_tensor, rank_, size_);
   if (FLAGS_enable_nccl_dynamic_check) {
     NCCLDynamicCheck::CheckShape(*out_tensor, peer, rank_, nccl_comm_);
   }
@@ -198,50 +198,10 @@ void NCCLCommContext::Reduce(phi::DenseTensor* out_tensor,
 }
 
 void NCCLCommContext::GroupStart() {
-  NCCL_CHECK(phi::dynload::ncclGroupStart());
+  PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::ncclGroupStart());
 }
-void NCCLCommContext::GroupEnd() { NCCL_CHECK(phi::dynload::ncclGroupStart()); }
-
-void NCCLCommContext::AllToAll(phi::DenseTensor* out_tensor,
-                               const phi::DenseTensor& in_tensor,
-                               gpuStream_t stream) {
-  phi::distributed::CommStaticCheck::CheckShape(*out_tensor,
-                                                in_tensor,
-                                                /*dst_rank*/ rank_,
-                                                /*cur_rank*/ rank_,
-                                                size_,
-                                                /*out_size_factor*/ 0,
-                                                /*in_size_factor*/ 0);
-
-  if (FLAGS_enable_nccl_dynamic_check) {
-    phi::distributed::NCCLDynamicCheck::CheckShape(
-        *out_tensor, in_tensor, in_size_each_rank, rank_, size_, nccl_comm_);
-  }
-
-  int send_numel = in_tensor->numel();
-  size_t offset = 0;
-  send_numel /= size_;
-
-  auto send_buf = in_tensor->data();
-  auto recv_buf = out->data();
-
-  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupStart());
-  for (auto i = 0; i < size_; ++i) {
-    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclSend(send_buf + offset,
-                                                           send_numel,
-                                                           in_tensor.type(),
-                                                           i,
-                                                           nccl_comm_,
-                                                           stream));
-    PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclRecv(recv_buf + offset,
-                                                           send_numel,
-                                                           out_tensor->type(),
-                                                           i,
-                                                           nccl_comm_,
-                                                           stream));
-    offset += send_numel;
-  }
-  PADDLE_ENFORCE_GPU_SUCCESS(platform::dynload::ncclGroupEnd());
+void NCCLCommContext::GroupEnd() {
+  PADDLE_ENFORCE_GPU_SUCCESS(phi::dynload::ncclGroupStart());
 }
 
 }  // namespace distributed

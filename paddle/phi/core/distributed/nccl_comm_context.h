@@ -45,6 +45,7 @@ class NCCLCommContext final : public CommContext {
 
   void ReduceScatter(phi::DenseTensor* out_tensor,
                      const phi::DenseTensor& in_tensor,
+                     ncclRedOp_t reduce_type,
                      gpuStream_t stream);
 
   void AllGather(phi::DenseTensor* out_tensor,
@@ -65,10 +66,6 @@ class NCCLCommContext final : public CommContext {
   void GroupStart();
 
   void GroupEnd();
-
-  void AllToAll(phi::DenseTensor* out_tensor,
-                const phi::DenseTensor& in_tensor,
-                gpuStream_t stream);
 
  private:
   DISABLE_COPY_AND_ASSIGN(NCCLCommContext);

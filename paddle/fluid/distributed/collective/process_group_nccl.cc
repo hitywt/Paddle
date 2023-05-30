@@ -27,7 +27,6 @@
 #include "paddle/phi/core/utils/data_type.h"
 
 #include "paddle/phi/core/distributed/comm_context_manager.h"
-#include "paddle/phi/core/distributed/nccl_comm_context.h"
 
 PHI_DECLARE_bool(nccl_blocking_wait);
 DECLARE_bool(use_stream_safe_cuda_allocator);
@@ -167,7 +166,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllReduce(
   return RunFnInNCCLEnv(
       [&](ncclComm_t comm, gpuStream_t stream) {
         auto comm_context = this->GetCommContext();
-        comm_ctx->AllReduce(
+        comm_context->AllReduce(
             out_tensor, in_tensor, ToNCCLRedType(opts.reduce_op), stream);
       },
       in_tensor,
@@ -188,7 +187,7 @@ void CheckSizeOnEachRank(const phi::DDim& tensor_dim,
 
   int64_t sum_size_on_each_rank =
       std::accumulate(size_on_each_rank.begin(), size_on_each_rank.end(), 0);
-  // PADDLE_ENFORCE_EQ(
+  PADDLE_ENFORCE_EQ(
       sum_size_on_each_rank,
       tensor_dim[0],
       phi::errors::InvalidArgument(
@@ -233,7 +232,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllToAll(
 
           out_numel = out_size_each_rank[i] * out_row_size;
           output_partial = GetPartialTensor(*out_tensor, out_offset, out_numel);
-          comm_context->Recv(output_partial, i, stream);
+          comm_context->Recv(&output_partial, i, stream);
           out_offset += out_numel;
         }
         comm_context->GroupEnd();
@@ -412,7 +411,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Gather(
     if (rank_ == opts.root_rank) {
       for (auto i = 0; i < size_; i++) {
         auto& gather_tensor = gather_tensors[i];
-        comm_context->Recv(gather_tensor, i, stream);
+        comm_context->Recv(&gather_tensor, i, stream);
       }
     }
     // send to root
@@ -440,7 +439,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Recv(
   return RunFnInNCCLEnv(
       [&](ncclComm_t comm, gpuStream_t stream) {
         auto comm_context = this->GetCommContext();
-        comm_contxx->Recv(tensor, peer, stream);
+        comm_context->Recv(tensor, src_rank, stream);
       },
       *tensor,
       CommType::RECV,
@@ -779,7 +778,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllReduce(
           const gpuStream_t& stream) {
         auto comm_context = this->GetCommContext();
         comm_context->AllReduce(
-            output, input, ToNCCLRedType(opts.reduce_op), stream);
+            &output, input, ToNCCLRedType(opts.reduce_op), stream);
       },
       CommType::ALLREDUCE);
 }
@@ -803,7 +802,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Broadcast(
         const auto root =
             opts.source_rank * in_tensors.size() + opts.source_root;
         auto comm_context = this->GetCommContext();
-        comm_context->Broadcast(output, input, root, stream);
+        comm_context->Broadcast(&output, input, root, stream);
       },
       CommType::BROADCAST);
 }
@@ -865,7 +864,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Recv(
           const gpuStream_t& stream,
           int src_rank) {
         auto comm_context = this->GetCommContext();
-        comm_context->Recv(output, src_rank, stream);
+        comm_context->Recv(&output, src_rank, stream);
       },
       src_rank,
       CommType::RECV);
@@ -891,7 +890,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllGather(
           ncclComm_t comm,
           const gpuStream_t& stream) {
         auto comm_context = this->GetCommContext();
-        comm_context->AllGather(output, input, stream);
+        comm_context->AllGather(&output, input, stream);
       },
       CommType::ALLGATHER);
 }
@@ -953,11 +952,11 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllToAll(
         size_t offset = 0;
         comm_context->GroupStart();
         for (auto i = 0; i < size_; i++) {
-          auto input_data =
-              GetPointerByOffset(input.data(), offset, input.dtype());
-          comm_context->Send(input_data, i, stream);
-          auto output_data =
-              GetPointerByOffset(output.data(), offset, input.dtype());
+          auto input_data = reinterpret_cast<phi::DenseTensor*>(
+              GetPointerByOffset(input.data(), offset, input.dtype()));
+          comm_context->Send(*input_data, i, stream);
+          auto output_data = reinterpret_cast<phi::DenseTensor*>(
+              GetPointerByOffset(output.data(), offset, input.dtype()));
           comm_context->Recv(output_data, i, stream);
           offset += input.numel() / size_;
         }
@@ -982,7 +981,7 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Reduce(
           ncclComm_t comm,
           const gpuStream_t& stream) {
         auto comm_context = this->GetCommContext();
-        comm_context->Reduce(output,
+        comm_context->Reduce(&output,
                              input,
                              ToNCCLRedType(opts.reduce_op),
                              opts.root_rank,
@@ -1015,15 +1014,15 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Scatter(
         if (rank_ == opts.root_rank) {
           comm_context->GroupStart();
           for (auto i = 0; i < size_; i++) {
-            auto input_data =
-                GetPointerByOffset(input.data(), offset, input.dtype());
-            comm_context->Send(input_data, i, stream);
+            auto input_data = reinterpret_cast<phi::DenseTensor*>(
+                GetPointerByOffset(input.data(), offset, input.dtype()));
+            comm_context->Send(*input_data, i, stream);
             offset += input.numel() / size_;
           }
-          comm_context->Recv(output, opts.root_rank, stream);
+          comm_context->Recv(&output, opts.root_rank, stream);
           comm_context->GroupEnd();
         } else {
-          comm_context->Recv(output, opts.root_rank, stream);
+          comm_context->Recv(&output, opts.root_rank, stream);
         }
       },
       CommType::SCATTER);
@@ -1043,7 +1042,7 @@ std::shared_ptr<ProcessGroupNCCL> ProcessGroupNCCL::CreateProcessGroupNCCL(
   return process_group;
 }
 
-phi::distributed::CommContext* GetCommContext() {
+phi::distributed::NCCLCommContext* ProcessGroupNCCL::GetCommContext() {
   const auto& comm_context_manager =
       phi::distributed::CommContextManager::GetInstance();
   auto comm_context = static_cast<phi::distributed::NCCLCommContext*>(
