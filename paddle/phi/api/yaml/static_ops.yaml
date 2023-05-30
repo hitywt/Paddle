@@ -31,10 +31,10 @@
   output : Tensor(out)
   infer_meta :
     func : AllToAllInferMeta
-    param: [x, nranks]
+    param: [x]
   kernel :
-    func : all_gather
-    param: [x, nranks]
+    func : all_to_all
+    param: [x]
 
 - op : arange
   args : (Tensor start, Tensor end, Tensor step)
