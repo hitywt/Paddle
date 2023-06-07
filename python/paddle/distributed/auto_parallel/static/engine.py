@@ -172,7 +172,6 @@ class Engine:
             raise TypeError(
                 "'cluster' must be the object or class `paddle.distributed.auto_parallel.Cluster`"
             )
-        self._cluster = cluster or get_default_cluster()
 
         if strategy and not isinstance(strategy, Strategy):
             raise TypeError(
@@ -186,6 +185,7 @@ class Engine:
         if cluster:
             self._cluster = cluster
         else:
+            auto_config = False
             if os.getenv("PADDLE_AUTO_PARALLEL_CONFIG"):
                 try:
                     path = os.getenv("PADDLE_AUTO_PARALLEL_CONFIG")
@@ -196,7 +196,16 @@ class Engine:
                         "Load json failed, please check json file, engine will run default config."
                     )
                     self._json_config = None
-            self._cluster = get_default_cluster(self._json_config)
+            else:
+                auto_config = None
+                if os.getenv("PADDLE_AUTO_CLUSTER"):
+                    auto_config = int(os.getenv("PADDLE_AUTO_CLUSTER"))
+            self._cluster = get_default_cluster(self._json_config, auto_config)
+
+        if self._cluster is None:
+            raise TypeError(
+                "'cluster' must be the object or class `paddle.distributed.auto_parallel.Cluster`"
+            )
 
         if os.getenv("POD_NAME"):
             self._logger.info(
