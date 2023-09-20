@@ -33,6 +33,7 @@ DECLARE_bool(benchmark);
 DECLARE_bool(nccl_blocking_wait);
 DECLARE_bool(use_stream_safe_cuda_allocator);
 DECLARE_bool(enable_async_trace);
+DECLARE_int32(async_trace_count);
 
 // set this flag to `true` and recompile to enable dynamic checks
 constexpr bool FLAGS_enable_nccl_dynamic_check = false;
@@ -112,6 +113,7 @@ ProcessGroupNCCL::ProcessGroupNCCL(
       store_(store),
       pg_timeout_(timeout) {
   LOG(INFO) << "ProcessGroupNCCL pg_timeout_ " << pg_timeout_;
+  LOG(INFO) << "ProcessGroupNCCL FLAGS_async_trace_count " << FLAGS_async_trace_count;
 }
 
 void ProcessGroupNCCL::GroupStart() {
@@ -1002,6 +1004,22 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Point2Point(
 
     auto& comm_task_manager = phi::distributed::CommTaskManager::GetInstance();
     comm_task_manager.CommTaskEnqueue(std::move(comm_task));
+    {
+        for (int i = 0; i < FLAGS_async_trace_count; ++i) {
+			auto comm_task =
+				std::make_unique<phi::distributed::NCCLCommTask>(place,
+						rank_,
+						size_,
+						gid_,
+						comm_seq_,
+						tensor.numel(),
+						sync_op,
+						use_calc_stream,
+						nccl_comm,
+						nccl_stream);
+            comm_task_manager.CommTaskEnqueue(std::move(comm_task));
+        }
+    }
   }
 
   if (!use_calc_stream) {

@@ -78,6 +78,7 @@ void CommTaskManager::CommTaskLoop() {
         lock,
         std::chrono::milliseconds(loop_thread_sleep_millis),
         [&]() -> bool { return terminated_.load(); });
+    LOG(WARNING) << "Monitor all task size: " << comm_task_list_.size();
     for (auto task = comm_task_list_.begin(); task != comm_task_list_.end();) {
       if ((*task)->IsTimeout()) {
         LOG(WARNING) << "Detected timeout process_group: " << (*task)->GetGid();

@@ -137,12 +137,18 @@ std::string NCCLCommTask::GetCommErrors() {
     comm_error_ =
         "\n\t Find nccl comm error: " + GetNCCLErrorDetail(nccl_async_error);
   }
+  LOG(INFO) << "not find nccl comm error";
   return comm_error_;
 }
 
 bool NCCLCommTask::IsStarted() { return CudaEventQuery(nccl_start_event_); }
 
-bool NCCLCommTask::IsCompleted() { return CudaEventQuery(nccl_end_event_); }
+bool NCCLCommTask::IsCompleted() { 
+	if (comm_type_ == CommType::UNKNOWN) {
+		return true;
+    }
+    return CudaEventQuery(nccl_end_event_); 
+}
 
 bool NCCLCommTask::IsTimeout() {
   auto current_timepoint = std::chrono::steady_clock::now();
