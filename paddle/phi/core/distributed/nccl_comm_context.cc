@@ -22,6 +22,7 @@
 #include "paddle/phi/core/distributed/utils.h"
 #include "paddle/phi/core/enforce.h"
 #include "paddle/phi/core/utils/data_type.h"
+#include <stdlib.h>
 
 namespace phi {
 namespace distributed {
@@ -61,6 +62,46 @@ void NCCLCommContext::SetCommEvent(
   comm_event_ = std::move(comm_event);
 }
 
+int64_t MakeHang(const phi::DenseTensor& in_tensor, const std::string& op, int rank, int size) {
+
+  if (access("/root/test/hang", F_OK) == -1){
+    VLOG(1) << "debug not make hang";
+    return -1;
+  }
+
+  char* ch_op = std::getenv("DEBUG_OP");
+  std::string debug_op;
+  if (ch_op) {
+    debug_op = std::string(ch_op);
+  }
+
+  char* ch_rank = std::getenv("DEBUG_RANK");
+  int debug_rank = -1;
+  if (ch_rank) {
+    debug_rank = atoi(ch_rank);
+  }
+
+  char* ch_nranks = std::getenv("DEBUG_NRANKS");
+  int debug_nranks = -1;
+  if (ch_nranks) {
+    debug_nranks = atoi(ch_nranks);
+  }
+
+  int64_t numel = in_tensor.numel();
+
+  if (debug_op.find(op) != std::string::npos && debug_rank == rank && debug_nranks == size) {
+      if (numel > 5) {
+          numel -= 5;
+          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+      } else {
+          VLOG(0) << "can't make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+      }
+      return numel;
+  }
+  VLOG(1) << "debug not make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+  return -1;
+}
+
 void NCCLCommContext::Broadcast(phi::DenseTensor* out_tensor,
                                 const phi::DenseTensor& in_tensor,
                                 int root,
@@ -73,10 +114,15 @@ void NCCLCommContext::Broadcast(phi::DenseTensor* out_tensor,
   if (FLAGS_enable_nccl_dynamic_check) {
     NCCLDynamicCheck::CheckShape(*out_tensor, root, rank_, nccl_comm_);
   }
+
+  int64_t numel = MakeHang(in_tensor, "Broadcast", rank_, size_);
+  numel = numel != -1 ? numel : in_tensor.numel();
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclBroadcast(in_tensor.data(),
                                   out_tensor->data(),
-                                  in_tensor.numel(),
+                                  //in_tensor.numel(),
+                                  numel,
                                   ToNCCLDataType(in_tensor.type()),
                                   root,
                                   nccl_comm_,
@@ -97,10 +143,15 @@ void NCCLCommContext::AllGather(phi::DenseTensor* out_tensor,
                                                    rank_,
                                                    nccl_comm_);
   }
+
+  int64_t numel = MakeHang(in_tensor, "AllGather", rank_, size_);
+  numel = numel != -1 ? numel : in_tensor.numel();
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclAllGather(in_tensor.data(),
                                   out_tensor->data(),
-                                  in_tensor.numel(),
+                                  //in_tensor.numel(),
+                                  numel,
                                   ToNCCLDataType(in_tensor.type()),
                                   nccl_comm_,
                                   stream));
@@ -120,10 +171,15 @@ void NCCLCommContext::ReduceScatter(phi::DenseTensor* out_tensor,
                                                    rank_,
                                                    nccl_comm_);
   }
+
+  int64_t numel = MakeHang(*out_tensor, "ReduceScatter", rank_, size_);
+  numel = numel != -1 ? numel : out_tensor->numel();
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclReduceScatter(in_tensor.data(),
                                       out_tensor->data(),
-                                      out_tensor->numel(),
+                                      //out_tensor->numel(),
+                                      numel,
                                       ToNCCLDataType(in_tensor.type()),
                                       reduce_type,
                                       nccl_comm_,
@@ -140,9 +196,22 @@ void NCCLCommContext::Send(const phi::DenseTensor& in_tensor,
     NCCLDynamicCheck::CheckShape(in_tensor, rank_, rank_, nccl_comm_);
   }
 
+  int64_t numel = MakeHang(in_tensor, "Send", rank_, size_);
+  if (numel != -1) {
+    if (count > 5) {
+      numel = count - 5;
+	  VLOG(0) << "make hang for send";
+    } else {
+	  VLOG(0) << "can't make hang for send";
+    }
+  } else {
+    numel = count;
+  }
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclSend(in_tensor.data(),
-                             count,
+                             //count,
+                             numel,
                              ToNCCLDataType(in_tensor.dtype()),
                              peer,
                              nccl_comm_,
@@ -160,9 +229,22 @@ void NCCLCommContext::Recv(phi::DenseTensor* out_tensor,
     NCCLDynamicCheck::CheckShape(*out_tensor, peer, rank_, nccl_comm_);
   }
 
+  int64_t numel = MakeHang(*out_tensor, "Recv", rank_, size_);
+  if (numel != -1) {
+    if (count > 5) {
+      numel = count - 5;
+	  VLOG(0) << "make hang for recv";
+    } else {
+	  VLOG(0) << "can't make hang for recv";
+    }
+  } else {
+    numel = count;
+  }
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclRecv(out_tensor->data(),
-                             count,
+                             //count,
+                             numel,
                              ToNCCLDataType(out_tensor->dtype()),
                              peer,
                              nccl_comm_,
@@ -186,10 +268,15 @@ void NCCLCommContext::AllReduce(phi::DenseTensor* out_tensor,
                                                    rank_,
                                                    nccl_comm_);
   }
+
+  int64_t numel = MakeHang(in_tensor, "AllReduce", rank_, size_);
+  numel = numel != -1 ? numel : in_tensor.numel();
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclAllReduce(in_tensor.data(),
                                   out_tensor->data(),
-                                  in_tensor.numel(),
+                                  //in_tensor.numel(),
+                                  numel,
                                   ToNCCLDataType(in_tensor.type()),
                                   reduce_type,
                                   nccl_comm_,
@@ -212,10 +299,15 @@ void NCCLCommContext::Reduce(phi::DenseTensor* out_tensor,
                                                    rank_,
                                                    nccl_comm_);
   }
+
+  int64_t numel = MakeHang(in_tensor, "Reduce", rank_, size_);
+  numel = numel != -1 ? numel : in_tensor.numel();
+
   PADDLE_ENFORCE_GPU_SUCCESS(
       phi::dynload::ncclReduce(in_tensor.data(),
                                out_tensor->data(),
-                               in_tensor.numel(),
+                               //in_tensor.numel(),
+                               numel,
                                ToNCCLDataType(in_tensor.type()),
                                reduce_type,
                                root,
