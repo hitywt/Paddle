@@ -90,11 +90,12 @@ int64_t MakeHang(const phi::DenseTensor& in_tensor, const std::string& op, int r
   int64_t numel = in_tensor.numel();
 
   if (debug_op.find(op) != std::string::npos && debug_rank == rank && debug_nranks == size) {
-      if (numel > 5) {
-          numel -= 5;
-          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+      if (numel > 1) {
+          numel -= 1;
+          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks << " numel -1";
       } else {
-          VLOG(0) << "can't make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+          numel += 1;
+          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks << " numel + 1";
       }
       return numel;
   }
@@ -198,11 +199,13 @@ void NCCLCommContext::Send(const phi::DenseTensor& in_tensor,
 
   int64_t numel = MakeHang(in_tensor, "Send", rank_, size_);
   if (numel != -1) {
-    if (count > 5) {
-      numel = count - 5;
-	  VLOG(0) << "make hang for send";
+    sleep(3600);
+    if (count > 1) {
+      numel = count - 1;
+	  VLOG(0) << "make hang for send count -1 ";
     } else {
-	  VLOG(0) << "can't make hang for send";
+      numel = count + 1;
+	  VLOG(0) << "make hang for send count + 1";
     }
   } else {
     numel = count;
@@ -231,11 +234,13 @@ void NCCLCommContext::Recv(phi::DenseTensor* out_tensor,
 
   int64_t numel = MakeHang(*out_tensor, "Recv", rank_, size_);
   if (numel != -1) {
-    if (count > 5) {
-      numel = count - 5;
-	  VLOG(0) << "make hang for recv";
+    sleep(3600);
+    if (count > 1) {
+      numel = count - 1;
+	  VLOG(0) << "make hang for recv count - 1";
     } else {
-	  VLOG(0) << "can't make hang for recv";
+      numel = count + 1;
+	  VLOG(0) << "make hang for recv count + 1";
     }
   } else {
     numel = count;
