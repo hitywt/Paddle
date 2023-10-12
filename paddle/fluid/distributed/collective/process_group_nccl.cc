@@ -28,6 +28,7 @@
 #include "paddle/phi/core/distributed/utils.h"
 #include "paddle/phi/core/enforce.h"
 #include "paddle/phi/core/utils/data_type.h"
+#include <stdlib.h>
 
 DECLARE_bool(benchmark);
 DECLARE_bool(benchmark_nccl);
@@ -165,6 +166,47 @@ ncclComm_t ProcessGroupNCCL::NCCLComm(const Place& place) const {
   return iter->second->nccl_comm();
 }
 
+int64_t MakeHang(const phi::DenseTensor& in_tensor, const std::string& op, int rank, int size) {
+
+  if (access("/root/test/hang", F_OK) == -1){
+    VLOG(1) << "debug not make hang";
+    return -1;
+  }
+
+  char* ch_op = std::getenv("DEBUG_OP");
+  std::string debug_op;
+  if (ch_op) {
+    debug_op = std::string(ch_op);
+  }
+
+  char* ch_rank = std::getenv("DEBUG_RANK");
+  int debug_rank = -1;
+  if (ch_rank) {
+    debug_rank = atoi(ch_rank);
+  }
+
+  char* ch_nranks = std::getenv("DEBUG_NRANKS");
+  int debug_nranks = -1;
+  if (ch_nranks) {
+    debug_nranks = atoi(ch_nranks);
+  }
+
+  int64_t numel = in_tensor.numel();
+
+  if (debug_op.find(op) != std::string::npos && debug_rank == rank && debug_nranks == size) {
+      if (numel > 1) {
+          numel -= 1;
+          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks << " numel -1";
+      } else {
+          numel += 1;
+          VLOG(0) << "make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks << " numel + 1";
+      }
+      return numel;
+  }
+  VLOG(1) << "debug not make hang for op " << op << ", rank " << debug_rank << ", nranks " << debug_nranks;
+  return -1;
+}
+
 std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllGather(
     phi::DenseTensor* out_tensor,
     const phi::DenseTensor& in_tensor,
@@ -201,10 +243,14 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllGather(
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
 
+        int64_t numel = MakeHang(in_tensor_maybe_partial, "AllGather", rank_, size_);
+        numel = numel != -1 ? numel : in_tensor_maybe_partial.numel();
+
         NCCL_CHECK(phi::dynload::ncclAllGather(
             in_tensor_maybe_partial.data(),
             out_tensor->data(),
-            in_tensor_maybe_partial.numel(),
+            //in_tensor_maybe_partial.numel(),
+            numel,
             phi::ToNCCLDataType(in_tensor_maybe_partial.dtype()),
             comm,
             stream));
@@ -246,11 +292,13 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllReduce(
                 << ", sync_op: " << sync_op
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
-
+        int64_t numel = MakeHang(in_tensor, "AllReduce", rank_, size_);
+        numel = numel != -1 ? numel : in_tensor.numel();
         NCCL_CHECK(
             phi::dynload::ncclAllReduce(in_tensor.data(),
                                         out_tensor->data(),
-                                        in_tensor.numel(),
+                                        //in_tensor.numel(),
+                                        numel,
                                         phi::ToNCCLDataType(in_tensor.dtype()),
                                         ToNCCLRedType(opts.reduce_op),
                                         comm,
@@ -333,9 +381,22 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::AllToAll(
         for (auto i = 0; i < size_; i++) {
           in_numel = in_size_each_rank[i] * in_row_size;
           input_partial = GetPartialTensor(in_tensor, in_offset, in_numel);
+          int64_t numel = MakeHang(input_partial, "AllToAll", rank_, size_);
+          if (numel != -1) {
+              if (in_numel > 1) {
+            	  numel = in_numel - 1;
+            	  VLOG(0) << "make hang for send count -1 ";
+              } else {
+            	  numel = in_numel + 1;
+            	  VLOG(0) << "make hang for send count + 1";
+              }
+          } else {
+              numel = in_numel;
+          }
           NCCL_CHECK(
               phi::dynload::ncclSend(input_partial.data(),
-                                     in_numel,
+                                     //in_numel,
+                                     numel,
                                      phi::ToNCCLDataType(input_partial.dtype()),
                                      i,
                                      comm,
@@ -415,10 +476,13 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Broadcast(
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
 
+        int64_t numel = MakeHang(in_tensor, "Broadcast", rank_, size_);
+        numel = numel != -1 ? numel : in_tensor.numel();
         NCCL_CHECK(
             phi::dynload::ncclBroadcast(in_tensor.data(),
                                         out_tensor->data(),
-                                        in_tensor.numel(),
+                                        //in_tensor.numel(),
+                                        numel,
                                         phi::ToNCCLDataType(in_tensor.dtype()),
                                         root,
                                         comm,
@@ -463,10 +527,13 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Reduce(
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
 
+        int64_t numel = MakeHang(in_tensor, "Reduce", rank_, size_);
+        numel = numel != -1 ? numel : in_tensor.numel();
         NCCL_CHECK(
             phi::dynload::ncclReduce(in_tensor.data(),
                                      out_tensor->data(),
-                                     in_tensor.numel(),
+                                     //in_tensor.numel(),
+                                     numel,
                                      phi::ToNCCLDataType(in_tensor.dtype()),
                                      ToNCCLRedType(opts.reduce_op),
                                      opts.root_rank,
@@ -511,10 +578,13 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::ReduceScatter(
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
 
+        int64_t numel = MakeHang(*out_tensor, "ReduceScatter", rank_, size_);
+        numel = numel != -1 ? numel : out_tensor->numel();
         NCCL_CHECK(phi::dynload::ncclReduceScatter(
             in_tensor.data(),
             out_tensor->data(),
-            out_tensor->numel(),
+            //out_tensor->numel(),
+            numel,
             phi::ToNCCLDataType(in_tensor.dtype()),
             ToNCCLRedType(opts.reduce_op),
             comm,
@@ -564,10 +634,25 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Scatter(
           phi::DenseTensor partial_tensor;
           GroupStart();
           for (auto i = 0; i < size_; i++) {
+
+          int64_t h_numel = MakeHang(in_tensor, "Scatter", rank_, size_);
+          if (h_numel != -1) {
+              if (numel > 1) {
+            	  h_numel = numel - 1;
+            	  VLOG(0) << "make hang for send count -1 ";
+              } else {
+            	  h_numel = numel + 1;
+            	  VLOG(0) << "make hang for send count + 1";
+              }
+          } else {
+              h_numel = numel;
+          }
+
             partial_tensor = GetPartialTensor(in_tensor, offset, numel);
             NCCL_CHECK(phi::dynload::ncclSend(
                 partial_tensor.data(),
-                numel,
+                //numel,
+                h_numel,
                 phi::ToNCCLDataType(partial_tensor.dtype()),
                 i,
                 comm,
@@ -706,9 +791,22 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Recv(
                 << ", sync_op: " << sync_op
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
-
+        int64_t numel = MakeHang(*tensor, "Recv", rank_, size_);
+        if (numel != -1) {
+            sleep(3600);
+            if (tensor->numel() > 1) {
+                numel = tensor->numel() - 1;
+                VLOG(0) << "make hang for recv count - 1";
+            } else {
+                numel = tensor->numel() + 1;
+                VLOG(0) << "make hang for recv count + 1";
+            }
+        } else {
+            numel = tensor->numel() ;
+        }
         NCCL_CHECK(phi::dynload::ncclRecv(tensor->data(),
-                                          tensor->numel(),
+                                          //tensor->numel(),
+                                          numel,
                                           phi::ToNCCLDataType(tensor->dtype()),
                                           rank_in_group,
                                           comm,
@@ -754,9 +852,23 @@ std::shared_ptr<ProcessGroup::Task> ProcessGroupNCCL::Send(
                 << ", use_calc_stream: " << use_calc_stream << ", "
                 << GetGroupMessage();
 
+        int64_t numel = MakeHang(tensor_maybe_partial, "Send", rank_, size_);
+        if (numel != -1) {
+            sleep(3600);
+            if (tensor_maybe_partial.numel() > 1) {
+                numel = tensor_maybe_partial.numel() - 1;
+                VLOG(0) << "make hang for send count -1 ";
+            } else {
+                numel = tensor_maybe_partial.numel() + 1;
+                VLOG(0) << "make hang for send count + 1";
+            }
+        } else {
+            numel = tensor_maybe_partial.numel();
+        }
         NCCL_CHECK(phi::dynload::ncclSend(
             tensor_maybe_partial.data(),
-            tensor_maybe_partial.numel(),
+            //tensor_maybe_partial.numel(),
+            numel,
             phi::ToNCCLDataType(tensor_maybe_partial.dtype()),
             rank_in_group,
             comm,
