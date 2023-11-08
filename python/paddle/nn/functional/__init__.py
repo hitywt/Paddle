@@ -83,6 +83,7 @@ from .extension import diag_embed, gather_tree, sequence_mask, temporal_shift
 from .flash_attention import (  # noqa: F401
     scaled_dot_product_attention,
     sdp_kernel,
+    flash_attention_with_mask,
 )
 from .input import embedding, one_hot
 from .loss import (
@@ -267,4 +268,5 @@ __all__ = [
     'soft_margin_loss',
     'gaussian_nll_loss',
     'scaled_dot_product_attention',
+    'flash_attention_with_mask',
 ]
