@@ -118,6 +118,7 @@ void ConvertToDistTensor(Tensor* x, const phi::distributed::ProcessMesh* mesh) {
     return;
   }
   if (x->is_dist_tensor()) {
+    /*
     PADDLE_ENFORCE_EQ(
         std::dynamic_pointer_cast<phi::distributed::DistTensor>(x->impl())
             ->dist_attr()
@@ -127,6 +128,7 @@ void ConvertToDistTensor(Tensor* x, const phi::distributed::ProcessMesh* mesh) {
             "Input %s has different mesh. However all inputs should "
             "have the same mesh.",
             x->name()));
+    */
     return;
   } else {
     PADDLE_ENFORCE_EQ(
@@ -1285,12 +1287,14 @@ paddle::optional<paddle::Tensor> GetOptionalTensorFromArgs(
     return paddle::make_optional<paddle::Tensor>(
         reinterpret_cast<TensorObject*>(obj)->tensor);
   } else {
+    /*
     PADDLE_THROW(platform::errors::InvalidArgument(
         "%s(): argument '%s' (position %d) must be Tensor, but got %s",
         op_type,
         arg_name,
         arg_idx,
         reinterpret_cast<PyTypeObject*>(obj->ob_type)->tp_name));
+    */
   }
 }
 
