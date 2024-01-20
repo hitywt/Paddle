@@ -18,8 +18,12 @@ import logging
 import numbers
 import os
 import random
+import time
 
 import numpy as np
+from functools import cmp_to_key
+from paddle.distributed.launch.utils.kv_client import KVClient
+from paddle.distributed.launch.utils.kv_server import KVServer
 
 import paddle
 import paddle.distributed.auto_parallel.static.utils as auto_utils
@@ -2057,6 +2061,98 @@ class Engine:
         )
         return self._state_dict, self._dist_attr
 
+    def get_latest_ckpt(self, path=None):
+        def get_epoch_step(str):
+            _, epoch, _, step = str.split('_')
+            return int(epoch), int(step)
+
+        def cmp(t1, t2):
+            t1_epoch, t1_step  = get_epoch_step(t1)
+            t2_epoch, t2_step = get_epoch_step(t2)
+            if t1_epoch == t2_epoch:
+                print(f't1_step: {t1_step}, t2_step: {t2_step}')
+                return t2_step - t1_step
+            else:
+                print(f't1_epoch: {t1_epoch}, t2_epoch: {t2_epoch}')
+                return t2_epoch - t1_epoch
+
+        ckpt_version_list = sorted(os.listdir(path), key=cmp_to_key(cmp))
+        #----------------------------------------------------------------
+
+        master_endpoint = os.getenv("PADDLE_MASTER")
+        nnodes = int(os.getenv("PADDLE_NNODES"))
+        curr_endpoint = os.getenv("PADDLE_CURRENT_ENDPOINT")
+
+        global_rank = int(os.getenv("PADDLE_GLOBAL_RANK"))
+        local_rank = int(os.getenv("PADDLE_LOCAL_RANK"))
+        local_size = int(os.getenv("PADDLE_LOCAL_SIZE"))
+        node_id = int((global_rank - local_rank) / local_size)
+
+        if nnodes > 0 and master_endpoint is not None:
+            master_ip, _ = master_endpoint.split(":")
+            # TODO how to generate the same free port in all process
+            free_port = 12347
+            server_endpoint = f"{master_ip}:{free_port}"
+
+            if local_rank == 0 and master_ip in curr_endpoint:
+                server = KVServer(free_port)
+                server.start()
+                self._logger.info(f"server start at: {server_endpoint}")
+
+            client = KVClient(server_endpoint)
+            # only local rank 0 need put topo data
+            if local_rank == 0:
+                resp = False
+                while not resp:
+                    resp = client.put(
+                        key=f"/ckpt/nodes/{node_id}",
+                        value=json.dumps(ckpt_version_list),
+                    )
+            # all rank need get topo data
+            retry = True
+            global_ckpts = {}
+            while retry:
+                nodes_ckpt = client.get_prefix(key="/ckpt/nodes")
+                if nodes_ckpt and len(nodes_ckpt) == nnodes:
+                    for key, value in nodes_ckpt.items():
+                        global_ckpts[key] = json.loads(value)[0]
+                    retry = False
+                else:
+                    self._logger.info(
+                        f"get all ckpts failed, actual size: {len(nodes_ckpt)}, expected size: {nnodes}, retry later!"
+                    )
+                    time.sleep(1)
+            resp = False
+            while not resp:
+                resp = client.put(key=f"/ckpt/status/{global_rank}", value="ok")
+                if not resp:
+                    self._logger.info(
+                        f"put ok status for rank {global_rank} failed, retry later!"
+                    )
+            if global_rank == 0:
+                retry = True
+                global_size = int(os.getenv("PADDLE_GLOBAL_SIZE"))
+                while retry:
+                    resp = client.get_prefix(key="/ckpt/status")
+                    if resp and len(resp) == global_size:
+                        server.stop()
+                        retry = False
+                        self._logger.info("server stopped success")
+                    else:
+                        self._logger.info("server stoped failed! retry later")
+                        time.sleep(1)
+            def get_latest_path(global_ckpts):
+                latest_ckpts = []
+                for key, val in global_ckpts.items():
+                    latest_ckpts.append(val)
+                all_rank_latest_ckpts = sorted(latest_ckpts, key=cmp_to_key(cmp))
+                return all_rank_latest_ckpts[-1]
+            
+            target_ckpt = get_latest_path(global_ckpts)
+            target_ckpt = os.path.join(os.path.join(path, target_ckpt), target_ckpt)
+            self._logger.info(f'debug target ckpt: {target_ckpt}')
+            return target_ckpt
+        
     def cost(self, inputs_spec=None, labels_spec=None, mode=None):
         """
         Get and Print cost, including memory of every rank,
