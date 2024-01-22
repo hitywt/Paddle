@@ -2259,11 +2259,27 @@ class RuleBasedTuner:
                 best_dist_context = dist_context
         return best_dist_context
 
+
+    def _print_tag(self, max_len, length):
+        tag = "+" + "-" * max_len
+        for i in range(length):
+            print(tag, end="")
+            if i == length - 1:
+                print("+")
+
+    def _print_vals(self, vals, max_len):
+        for idx, val in enumerate(vals):
+            s = "|" + str(val).center(max_len)
+            print(s, end="")
+            if idx == len(vals) - 1:
+                print("|")
+
+
     def tune_o1(self):
         """The o1 level tuning."""
         best_cost = sys.maxsize
         best_dist_context = None
-
+        self._best_strategy = {} 
         for device_meshes in self.device_meshes_list:
             pp_stages = len(device_meshes)
             average_layers = len(self.layers) // pp_stages
@@ -2351,6 +2367,26 @@ class RuleBasedTuner:
                                     memory / (1024**3),
                                 )
                             )
+                            if parallelism == "dp":
+                                self._best_strategy = {}
+                                self._best_strategy["dp"] = process_mesh_shape[0]
+                                self._best_strategy["mp"] = 1
+                                self._best_strategy["pp"] = len(device_meshes)
+                            elif parallelism == "mp":
+                                self._best_strategy = {}
+                                self._best_strategy["dp"] = 1
+                                self._best_strategy["mp"] = process_mesh_shape[0]
+                                self._best_strategy["pp"] = len(device_meshes)
+                            elif parallelism == "dp_mp":
+                                self._best_strategy = {}
+                                self._best_strategy["dp"] = process_mesh_shape[0]
+                                self._best_strategy["mp"] = process_mesh_shape[1]
+                                self._best_strategy["pp"] = len(device_meshes)
+                            elif parallelism == "mp_dp":
+                                self._best_strategy = {}
+                                self._best_strategy["dp"] = process_mesh_shape[1]
+                                self._best_strategy["mp"] = process_mesh_shape[0]
+                                self._best_strategy["pp"] = len(device_meshes)
 
         return best_dist_context
 
@@ -2386,7 +2422,7 @@ class RuleBasedTuner:
             self._logger.info(
                 "The process will be quitted when just tune not run."
             )
-            sys.exit()
+            quit()
 
     def tune(self):
         begin = time.time()
@@ -2460,8 +2496,76 @@ class RuleBasedTuner:
 
         end = time.time()
         self._logger.info(f"Rule-based tuner end in {end - begin:.2f}s.")
-        self._logger.info("The best strategy found is as follows: ")
-        print_program_with_dist_attr(self.full_main_program, best_dist_context)
+        if not self._best_strategy:
+            self._logger.info("The best strategy found is as follows: ")
+            print_program_with_dist_attr(self.full_main_program, best_dist_context)
+        else:
+            self._logger.info("The best strategy found is DP{} MP{} PP{}, and distributed attr is as follows: ".format(self._best_strategy["dp"], self._best_strategy["mp"], self._best_strategy["pp"]))
+            block = self.full_main_program.global_block()
+            for op in block.ops:
+                dist_op = best_dist_context.get_dist_op_for_program(op)
+                if not dist_op:
+                    continue
+                op_dist_attr = dist_op.dist_attr
+                op_process_ids = op_dist_attr.process_mesh.process_ids
+                op_process_ids = "  -  ".join([str(op_process_ids[0]), str(op_process_ids[-1])])
+                op_process_shape = op_dist_attr.process_mesh.shape
+                op_type = op.type
+                op_id = op.desc.original_id()
+                op_str = "OP Type: {}  OP Id: {}  Process Ids: {}  Process Shape: {}  ".format(op_type, op_id, op_process_ids, op_process_shape)
+                header = ["Tensor Name", "Process Ids", "Process Shape", "Dims Mapping"]
+                all_item = []
+                items = []
+                for var_name in op.input_arg_names:
+                    var = block.vars[var_name]
+                    dist_tensor = best_dist_context.get_dist_tensor_for_program(var)
+                    if not dist_tensor:
+                        break
+                    tensor_dist_attr = dist_tensor.dist_attr
+                    process_ids = tensor_dist_attr.process_mesh.process_ids
+                    process_ids = "  -  ".join([str(process_ids[0]), str(process_ids[-1])])
+                    process_shape = tensor_dist_attr.process_mesh.shape
+                    dims_mapping = tensor_dist_attr.dims_mapping
+                    item = [var_name, process_ids, process_shape, dims_mapping]
+                    all_item.append(var_name)
+                    all_item.append(process_ids)
+                    all_item.append(process_shape)
+                    all_item.append(dims_mapping)
+                    items.append(item)
+                for var_name in op.output_arg_names:
+                    var = block.vars[var_name]
+                    dist_tensor = best_dist_context.get_dist_tensor_for_program(var)
+                    if not dist_tensor:
+                        break
+                    tensor_dist_attr = dist_tensor.dist_attr
+                    process_ids = tensor_dist_attr.process_mesh.process_ids
+                    process_ids = "  -  ".join([str(process_ids[0]), str(process_ids[-1])])
+                    process_shape = tensor_dist_attr.process_mesh.shape
+                    dims_mapping = tensor_dist_attr.dims_mapping
+                    item = [var_name, process_ids, process_shape, dims_mapping]
+                    all_item.append(var_name)
+                    all_item.append(process_ids)
+                    all_item.append(process_shape)
+                    all_item.append(dims_mapping)
+                    items.append(item)
+                
+                max_len = 0
+                for item in (all_item + header):
+                    if len(str(item)) > max_len:
+                        max_len = len(str(item))
+                max_len += 4  # for pretty print of center
+                
+                self._print_tag((max_len + 1) * 4 - 1, 1)
+                self._print_vals([op_str], (max_len + 1) * 4 - 1)
+
+                self._print_tag(max_len, len(header))
+                self._print_vals(header, max_len)
+                self._print_tag(max_len, len(header))
+                for item in items:
+                    self._print_vals(item, max_len)
+                    self._print_tag(max_len, len(item))
+                
+                print()
 
         # Save strategy if need
         path = self._strategy_path
