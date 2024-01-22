@@ -1258,17 +1258,7 @@ def get_default_cluster(json_config=None, auto_config=None):
                 return True
 
     cluster = Cluster()
-    if json_config and is_by_json_config(json_config):
-        # Get GPU info by json config
-        if "path" in json_config["cluster"]:
-            cluster.build_from_file(json_config["cluster"]["path"])
-            return cluster
-        else:
-            node_count = json_config["cluster"]["num_nodes"]
-            local_device_count = json_config["cluster"]["num_gpus"]
-            gpu_model = json_config["cluster"]["gpu_model"]
-            memory = json_config["cluster"]["gpu_memory"]
-    elif auto_config:
+    if auto_config:
         master_endpoint = os.getenv("PADDLE_MASTER")
         local_topo = SingleNodeTopology()
         local_topo.detect()
@@ -1321,6 +1311,7 @@ def get_default_cluster(json_config=None, auto_config=None):
                             link["source_global_id"] += mesh_idx*8
                             link["target_global_id"] += mesh_idx*8
                         topo_dict[mesh_type].append(global_topo_value)
+                    logger.info(f'debug topo_dict: {json.dumps(topo_dict, indent=3)}')
                     cluster._build_from_topo(topo_dict, local_size)
                     retry = False
                 else:
@@ -1350,7 +1341,7 @@ def get_default_cluster(json_config=None, auto_config=None):
                         logger.info("server stoped failed! retry later")
                         time.sleep(1)
             logger.info(f'cluster_topo_info: {json.dumps(cluster.mesh_group.to_json(), indent=3)}')
-            return cluster
+            #return cluster
         else:
             # when single machine, use topo directory
             topo_dict = {
@@ -1360,8 +1351,19 @@ def get_default_cluster(json_config=None, auto_config=None):
             }
             cluster._build_from_topo(topo_dict, local_size)
             logger.info(f'cluster_topo_info: {json.dumps(cluster.mesh_group.to_json(), indent=3)}')
+            #return cluster
+    if json_config and is_by_json_config(json_config):
+        # Get GPU info by json config
+        if "path" in json_config["cluster"]:
+            cluster.build_from_file(json_config["cluster"]["path"])
             return cluster
+        else:
+            node_count = json_config["cluster"]["num_nodes"]
+            local_device_count = json_config["cluster"]["num_gpus"]
+            gpu_model = json_config["cluster"]["gpu_model"]
+            memory = json_config["cluster"]["gpu_memory"]
     else:
+        cluster = Cluster()
         # Get GPU info by get_device_properties
         local_device_count = os.getenv("PADDLE_LOCAL_SIZE")
         if local_device_count is None:
@@ -1397,7 +1399,7 @@ def get_default_cluster(json_config=None, auto_config=None):
                 gpu_model = gpu_name
 
     logger.info(
-        "Node Count: {}, Local Device Size: {}, GPU Model: {}, GPU Memory: {}GB, World size: {}, EndPoint: {}.".format(
+        "Node Count: {}, Local Device Size: {}, Local GPU Model: {}, GPU Memory: {}GB, World size: {}, EndPoint: {}.".format(
             node_count,
             local_device_count,
             gpu_model,

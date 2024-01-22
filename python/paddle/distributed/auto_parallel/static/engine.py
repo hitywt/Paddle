@@ -2070,10 +2070,8 @@ class Engine:
             t1_epoch, t1_step  = get_epoch_step(t1)
             t2_epoch, t2_step = get_epoch_step(t2)
             if t1_epoch == t2_epoch:
-                print(f't1_step: {t1_step}, t2_step: {t2_step}')
                 return t2_step - t1_step
             else:
-                print(f't1_epoch: {t1_epoch}, t2_epoch: {t2_epoch}')
                 return t2_epoch - t1_epoch
 
         ckpt_version_list = sorted(os.listdir(path), key=cmp_to_key(cmp))
@@ -2119,7 +2117,7 @@ class Engine:
                     retry = False
                 else:
                     self._logger.info(
-                        f"get all ckpts failed, actual size: {len(nodes_ckpt)}, expected size: {nnodes}, retry later!"
+                        f"waiting for get full ckpts from other peer, retry later!"
                     )
                     time.sleep(1)
             resp = False
@@ -2146,11 +2144,13 @@ class Engine:
                 for key, val in global_ckpts.items():
                     latest_ckpts.append(val)
                 all_rank_latest_ckpts = sorted(latest_ckpts, key=cmp_to_key(cmp))
-                return all_rank_latest_ckpts[-1]
+                if len(all_rank_latest_ckpts) > 1:
+                    return all_rank_latest_ckpts[-2]
+                return None
             
             target_ckpt = get_latest_path(global_ckpts)
-            target_ckpt = os.path.join(os.path.join(path, target_ckpt), target_ckpt)
-            self._logger.info(f'debug target ckpt: {target_ckpt}')
+            if target_ckpt:
+                target_ckpt = os.path.join(os.path.join(path, target_ckpt), target_ckpt)
             return target_ckpt
         
     def cost(self, inputs_spec=None, labels_spec=None, mode=None):

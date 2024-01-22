@@ -1366,7 +1366,7 @@ class RuleBasedTuner:
     def _compelte_sub_fwd_program(self, idx, sub_fwd_program, process_mesh):
         """Compelete forward sub  program."""
         selective_parallelisms = (
-            ["dp", "mp"] if len(process_mesh.shape) == 1 else ["dp_mp", "mp_dp"]
+            ["mp"] if len(process_mesh.shape) == 1 else ["dp_mp", "mp_dp"]
         )
         for parallelism in selective_parallelisms:
             has_set_tensor_count = 0
@@ -2116,6 +2116,10 @@ class RuleBasedTuner:
         dm_idx = 0
         for device_meshes in device_meshes_list:
             has_used_devices = 0
+            #self.device_meshes_list.append([])
+            if len(device_meshes) == 2:
+                if device_meshes[0] != device_meshes[1]:
+                    continue
             self.device_meshes_list.append([])
             for device_mesh in device_meshes:
                 devices = reduce(lambda x, y: x * y, device_mesh, 1)
@@ -2138,13 +2142,15 @@ class RuleBasedTuner:
                 dm_idx += 1
                 has_used_devices += devices
                 process_mesh_shapes = convert_to_process_meshes(device_mesh)
+                print(process_mesh_shapes)
                 for process_mesh_shape in process_mesh_shapes:
+                    if len(process_mesh_shape) == 1:
+                        continue
                     process_mesh = ProcessMesh(
                         np.array(processes).reshape(process_mesh_shape).tolist()
                     )
                     if process_mesh not in self.process_meshes:
                         self.process_meshes.append(process_mesh)
-
         # step5: generate full program
         begin = time.time()
         self.gen_full_program()
@@ -2291,7 +2297,7 @@ class RuleBasedTuner:
             # For example, device_mesh is [1, 8] and process_mesh is [8].
             # The selective parallelism is dp or mp
             # Get dp8 or mp8 cost and compare them to get best sreategy.
-            for parallelism in ["dp", "mp", "dp_mp", "mp_dp"]:
+            for parallelism in ["dp_mp", "mp_dp"]:
                 for process_mesh_shape in process_mesh_shapes:
                     dist_context_of_device_meshes = None
                     for idx, device_mesh in enumerate(device_meshes):
