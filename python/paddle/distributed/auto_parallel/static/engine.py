@@ -2137,7 +2137,7 @@ class Engine:
                         retry = False
                         self._logger.info("server stopped success")
                     else:
-                        self._logger.info("server stoped failed! retry later")
+                        self._logger.info("wait for server stoped, retry later!")
                         time.sleep(1)
             def get_latest_path(global_ckpts):
                 latest_ckpts = []
