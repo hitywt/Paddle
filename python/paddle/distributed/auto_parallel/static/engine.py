@@ -2113,7 +2113,7 @@ class Engine:
                 nodes_ckpt = client.get_prefix(key="/ckpt/nodes")
                 if nodes_ckpt and len(nodes_ckpt) == nnodes:
                     for key, value in nodes_ckpt.items():
-                        global_ckpts[key] = json.loads(value)[0]
+                        global_ckpts[key] = json.loads(value)
                     retry = False
                 else:
                     self._logger.info(
@@ -2139,16 +2139,26 @@ class Engine:
                     else:
                         self._logger.info("wait for server stoped, retry later!")
                         time.sleep(1)
-            def get_latest_path(global_ckpts):
-                latest_ckpts = []
-                for key, val in global_ckpts.items():
-                    latest_ckpts.append(val)
-                all_rank_latest_ckpts = sorted(latest_ckpts, key=cmp_to_key(cmp))
-                if len(all_rank_latest_ckpts) > 1:
-                    return all_rank_latest_ckpts[-2]
+            def get_latest_path(global_ckpts, nnodes):
+                ckpt_version_count = {}
+                for key, ckpts in global_ckpts.items():
+                    for ckpt in ckpts:
+                        if ckpt not in ckpt_version_count:
+                            ckpt_version_count[ckpt] = 0
+                        ckpt_version_count[ckpt] += 1
+                available_ckpt_list = []
+                for key, val in ckpt_version_count.items():
+                    if val == nnodes:
+                        available_ckpt_list.append(key)
+                self._logger.info(f'debug available_ckpt_list: {available_ckpt_list}')
+                sorted_available_ckpt_list = sorted(available_ckpt_list, key=cmp_to_key(cmp))
+                self._logger.info(f'debug sorted_available_ckpt_list: {sorted_available_ckpt_list}')
+                if len(sorted_available_ckpt_list) > 1:
+                    return sorted_available_ckpt_list[1]
                 return None
             
-            target_ckpt = get_latest_path(global_ckpts)
+            self._logger.info(f'debug global_ckpts: {global_ckpts}')
+            target_ckpt = get_latest_path(global_ckpts, nnodes)
             if target_ckpt:
                 target_ckpt = os.path.join(os.path.join(path, target_ckpt), target_ckpt)
             return target_ckpt
