@@ -2153,8 +2153,8 @@ class Engine:
                 self._logger.info(f'debug available_ckpt_list: {available_ckpt_list}')
                 sorted_available_ckpt_list = sorted(available_ckpt_list, key=cmp_to_key(cmp))
                 self._logger.info(f'debug sorted_available_ckpt_list: {sorted_available_ckpt_list}')
-                if len(sorted_available_ckpt_list) > 1:
-                    return sorted_available_ckpt_list[1]
+                if len(sorted_available_ckpt_list) > 0:
+                    return sorted_available_ckpt_list[0]
                 return None
             
             self._logger.info(f'debug global_ckpts: {global_ckpts}')

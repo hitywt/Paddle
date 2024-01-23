@@ -1014,7 +1014,8 @@ class Cluster:
 
             # parse machine
             machine_ids = list(range(len(mesh_val)))
-            for machine_id in range(len(mesh_val)):
+            #logger.info(f'debug mesh_key: {mesh_key}, machine_ids: {machine_ids}')
+            for machine_id in machine_ids:
                 machine_val = mesh_val[machine_id]
                 machine = Machine(id=machine_id, mesh=mesh, topo=True)
                 machine.hostname = machine_val.get("hostname")
@@ -1299,19 +1300,16 @@ def get_default_cluster(json_config=None, auto_config=None):
                 global_topo = client.get_prefix(key="/topo/data")
                 if global_topo and len(global_topo) == nnodes:
                     topo_dict = {}
+                    #logger.info(f'debug nnodes: {nnodes}, {json.dumps(global_topo, indent=3)}')
                     for key, value in global_topo.items():
                         _, _, _, mesh_type, idx = key.split("/")
                         if mesh_type not in topo_dict:
                             topo_dict[mesh_type] = []
                         mesh_idx = len(topo_dict[mesh_type])
                         global_topo_value = json.loads(value)
-                        for device in global_topo_value["devices"]:
-                            device["global_id"] += mesh_idx*8
-                        for link in global_topo_value["links"]:
-                            link["source_global_id"] += mesh_idx*8
-                            link["target_global_id"] += mesh_idx*8
                         topo_dict[mesh_type].append(global_topo_value)
-                    logger.info(f'debug topo_dict: {json.dumps(topo_dict, indent=3)}')
+                        #logger.info(f'debug append mesh_type: {mesh_type}, machine: {global_topo_value["hostname"]}')
+                    #logger.info(f'debug topo_dict: {json.dumps(topo_dict, indent=3)}')
                     cluster._build_from_topo(topo_dict, local_size)
                     retry = False
                 else:
