@@ -20,7 +20,7 @@ import numpy as np
 
 import paddle
 import paddle.distributed as dist
-from paddle import _C_ops, nn
+from paddle import _C_ops, nn, pir
 from paddle.amp.grad_scaler import OptimizerState
 from paddle.base import unique_name
 from paddle.base.dygraph.base import switch_to_static_graph
@@ -240,6 +240,19 @@ def shard_tensor(
             # have to pass it manually.
             dist_tensor.stop_gradient = tensor.stop_gradient
             return dist_tensor
+    elif paddle.framework.in_pir_mode():
+        assert isinstance(
+            data, (type(None), pir.Value)
+        ), "input tensor is not pir value."
+        assert (
+            data.is_dense_tensor_type()
+        ), "dtensor_from_local() are only supported dense tensor type right."
+
+        global_dims = list(data.shape)
+        sharding_specs = get_shard_spec(mesh, placements, data.ndim)
+        dims_mapping = convert_to_dims_mapping(sharding_specs, mesh)
+        dist_tensor = paddle._pir_ops.shard_op(data, mesh, dims_mapping)
+        return dist_tensor
     else:
         # TODO(zhiqiu): we need to refine the static shard_tensor
         sharding_specs = get_shard_spec(mesh, placements, tensor.ndim)
