@@ -97,10 +97,6 @@
 #include "paddle/fluid/pir/transforms/onednn/batch_norm_act_fuse_pass.h"
 #endif
 
-#ifdef PADDLE_WITH_DISTRIBUTE
-#include "paddle/fluid/pybind/dist_static_op_function.h"
-#endif
-
 namespace py = pybind11;
 using paddle::dialect::ApiBuilder;
 using paddle::dialect::DenseTensorArrayType;
@@ -110,6 +106,9 @@ using paddle::dialect::IfOp;
 using paddle::dialect::PyLayerOp;
 using paddle::dialect::SelectedRowsType;
 using paddle::dialect::WhileOp;
+
+using paddle::dialect::OperationDistAttribute;
+using paddle::dialect::TensorDistAttribute;
 
 using pir::Attribute;
 using pir::Block;
@@ -682,6 +681,95 @@ void BindOperation(py::module *m) {
                 pir::ArrayAttribute::get(pir::IrContext::Instance(),
                                          op_callstack_infos));
           });
+#ifdef PADDLE_WITH_DISTRIBUTE
+  op.def_property_readonly(
+        "process_mesh",
+        [](Operation &self) {
+          if (self.HasAttribute(kAttrOpDistAttr)) {
+            return self.attribute<OperationDistAttribute>(kAttrOpDistAttr)
+                .process_mesh_attr()
+                .process_mesh();
+          } else {
+            PADDLE_THROW(phi::errors::InvalidArgument(
+                "process_mesh is only for dist op."));
+          }
+        })
+      .def("num_operand_dist_attrs",
+           [](Operation &self) {
+             if (self.HasAttribute(kAttrOpDistAttr)) {
+               return self.attribute<OperationDistAttribute>(kAttrOpDistAttr)
+                   .num_operand_dist_attrs();
+             } else {
+               PADDLE_THROW(phi::errors::InvalidArgument(
+                   "num_operands_dist_attrs is only for dist op."));
+             }
+           })
+      .def("operand_dist_attrs",
+           [](Operation &self) -> py::list {
+             if (self.HasAttribute(kAttrOpDistAttr)) {
+               py::list op_list;
+               auto op_dist_attr =
+                   self.attribute<OperationDistAttribute>(kAttrOpDistAttr);
+               uint32_t num_operands = op_dist_attr.num_operand_dist_attrs();
+               for (uint32_t i = 0; i < num_operands; ++i) {
+                 op_list.append(static_cast<pir::Attribute>(
+                     op_dist_attr.operand_dist_attr(i)));
+               }
+               return op_list;
+             } else {
+               PADDLE_THROW(phi::errors::InvalidArgument(
+                   "operand_dist_attrs is only for dist op."));
+             }
+           })
+      .def("operand_dist_attr",
+           [](Operation &self, uint32_t index) {
+             if (self.HasAttribute(kAttrOpDistAttr)) {
+               return static_cast<pir::Attribute>(
+                   self.attribute<OperationDistAttribute>(kAttrOpDistAttr)
+                       .operand_dist_attr(index));
+             } else {
+               PADDLE_THROW(phi::errors::InvalidArgument(
+                   "operand_dist_attr is only for dist op."));
+             }
+           })
+      .def("num_result_dist_attrs",
+           [](Operation &self) {
+             if (self.HasAttribute(kAttrOpDistAttr)) {
+               return self.attribute<OperationDistAttribute>(kAttrOpDistAttr)
+                   .num_result_dist_attrs();
+             } else {
+               PADDLE_THROW(phi::errors::InvalidArgument(
+                   "num_result_dist_attrs is only for dist op."));
+             }
+           })
+      .def("result_dist_attrs",
+           [](Operation &self) -> py::list {
+             if (self.HasAttribute(kAttrOpDistAttr)) {
+               py::list op_list;
+               auto op_dist_attr =
+                   self.attribute<OperationDistAttribute>(kAttrOpDistAttr);
+               uint32_t num_results = op_dist_attr.num_result_dist_attrs();
+               for (uint32_t i = 0; i < num_results; ++i) {
+                 op_list.append(static_cast<pir::Attribute>(
+                     op_dist_attr.result_dist_attr(i)));
+               }
+               return op_list;
+             } else {
+               PADDLE_THROW(phi::errors::InvalidArgument(
+                   "result_dist_attrs is only for dist op."));
+             }
+           })
+      .def("result_dist_attr", [](Operation &self, uint32_t index) {
+        if (self.HasAttribute(kAttrOpDistAttr)) {
+          return static_cast<pir::Attribute>(
+              self.attribute<OperationDistAttribute>(kAttrOpDistAttr)
+                  .result_dist_attr(index));
+        } else {
+          PADDLE_THROW(phi::errors::InvalidArgument(
+              "result_dist_attr is only for dist op."));
+        }
+      });
+#endif
   py::class_<Operation::BlockContainer> block_container(
       *m, "Operation_BlockContainer", R"DOC(
     The Operation_BlockContainer only use to walk all blocks in the operation.
@@ -1064,6 +1152,31 @@ void BindAttribute(py::module *m) {
     print_stream << self;
     return print_stream.str();
   });
+#ifdef PADDLE_WITH_DISTRIBUTE
+  ir_attr
+      .def_property_readonly(
+          "process_mesh",
+          [](Attribute &self) {
+            if (self.isa<TensorDistAttribute>()) {
+              return self.dyn_cast<TensorDistAttribute>()
+                  .process_mesh_attr()
+                  .process_mesh();
+            } else {
+              PADDLE_THROW(phi::errors::InvalidArgument(
+                  "process_mesh is only for OperationDistAttribute and "
+                  "TensorDistAttribute."));
+            }
+          })
+      .def_property_readonly("dims_mapping", [](Attribute &self) {
+        if (self.isa<TensorDistAttribute>()) {
+          return self.dyn_cast<TensorDistAttribute>().dims_mapping();
+        } else {
+          PADDLE_THROW(phi::errors::InvalidArgument(
+              "process_mesh is only for OperationDistAttribute and "
+              "TensorDistAttribute."));
+        }
+      });
+#endif
 }
 
 struct PyInsertionPoint {
@@ -1819,19 +1932,6 @@ void BindPassManager(pybind11::module *m) {
            [](PassManager &self) { self.EnableIRPrinting(); });
 }
 
-#ifdef PADDLE_WITH_DISTRIBUTE
-void BindDistOpsAPI(pybind11::module *module) {
-  {
-    if (PyModule_AddFunctions(module->ptr(), DistOpsAPI) < 0) {
-      {
-        PADDLE_THROW(
-            phi::errors::Fatal("Add C++ DistOpsAPI to core.ops failed!"));
-      }
-    }
-  }
-}
-#endif
-
 void BindPir(pybind11::module *module) {
   auto ir_module = module->def_submodule("pir");
   BindProgram(&ir_module);
@@ -1850,9 +1950,6 @@ void BindPir(pybind11::module *module) {
   BindControlFlowApi(&ir_module);
   auto ops_modules = ir_module.def_submodule("ops");
   BindOpsAPI(&ops_modules);
-#ifdef PADDLE_WITH_DISTRIBUTE
-  BindDistOpsAPI(&ops_modules);
-#endif
   BindIrParser(&ir_module);
 }
 
