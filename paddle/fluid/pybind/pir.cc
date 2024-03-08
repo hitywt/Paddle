@@ -1631,7 +1631,7 @@ void BindPassManager(pybind11::module *m) {
 }
 
 #ifdef PADDLE_WITH_DISTRIBUTE
-void BindOpsAPI(pybind11::module *module) {
+void BindDistOpsAPI(pybind11::module *module) {
   {
     if (PyModule_AddFunctions(module->ptr(), DistOpsAPI) < 0) {
       {
@@ -1660,7 +1660,7 @@ void BindPir(pybind11::module *module) {
   auto ops_modules = ir_module.def_submodule("ops");
   BindOpsAPI(&ops_modules);
 #ifdef PADDLE_WITH_DISTRIBUTE
-  BindDistOpsAPI(ops_module);
+  BindDistOpsAPI(&ops_modules);
 #endif
   BindIrParser(&ir_module);
 }

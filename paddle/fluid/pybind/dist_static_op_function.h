@@ -42,7 +42,7 @@ static PyObject *static_api_shard_tensor(PyObject *self,
     PyObject *process_mesh_obj = PyTuple_GET_ITEM(args, 1);
     auto process_mesh = CastPyArg2ProcessMesh(process_mesh_obj, 1);
 
-    PyObject *placements_obj = PyTuple_GET_ITEM(args, 2);
+    PyObject *dims_mapping_obj = PyTuple_GET_ITEM(args, 2);
     auto dims_mapping = CastPyArg2VectorOfInt64(dims_mapping_obj, 2);
 
     // Call ir static api

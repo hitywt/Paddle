@@ -18,6 +18,7 @@
 
 #include "paddle/phi/common/data_type.h"
 #include "paddle/phi/common/place.h"
+#include "paddle/phi/core/distributed/auto_parallel/process_mesh.h"
 #include "paddle/pir/include/core/value.h"
 
 namespace paddle {
