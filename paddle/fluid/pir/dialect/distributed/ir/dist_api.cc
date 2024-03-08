@@ -26,13 +26,16 @@ namespace dialect {
 pir::Value shard_tensor(const pir::Value& x,
                         const phi::distributed::ProcessMesh& process_mesh,
                         const std::vector<int64_t>& dims_mapping) {
+  pir::IrContext* ctx = pir::IrContext::Instance();
   paddle::flat_hash_map<int64_t, phi::ReduceType> partial_status;
-  pir::Attribute tensor_dist_attr =
-      TensorDistAttribute::get(process_mesh, dims_mapping, partial_status);
+  pir::AttributeMap attribute_map = {
+    "tensor_dist_attr" : TensorDistAttribute::get(
+        ctx, process_mesh, dims_mapping, partial_status)
+  };
 
   auto shard_tensor_op =
-      ApiBuilder::Instance().GetBuilder()->Build<ShardTensorOp>(
-          x, tensor_dist_attr);
+      ApiBuilder::Instance().GetBuilder()->Build<ShardTensorOp>(x,
+                                                                attribute_map);
   return shard_tensor_op.out();
 }
 
