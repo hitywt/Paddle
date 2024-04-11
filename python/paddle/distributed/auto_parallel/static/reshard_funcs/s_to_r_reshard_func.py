@@ -17,7 +17,6 @@ import paddle
 from ..process_group import new_process_group
 from .base_reshard_func import ReshardFunction, is_replicated, is_shard
 
-
 class SToRReshardFunction(ReshardFunction):
     def is_suitable(self, src_dist_attr, dst_dist_attr):
         if not is_shard(src_dist_attr):
