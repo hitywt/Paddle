@@ -74,7 +74,6 @@ class TestReshardSToR:
             assert 'pd_op.c_allgather' in new_ops
             assert 'pd_op.split' in new_ops
             assert 'pd_op.concat' in new_ops
-            assert 'pd_op.concat' in new_ops
             assert 'dist_op.reshard' not in new_ops
             assert 'dist_op.reshard' in old_ops
         elif self._shard == 0:
