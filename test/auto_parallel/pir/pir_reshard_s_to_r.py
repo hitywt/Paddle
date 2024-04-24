@@ -33,25 +33,6 @@ class TestReshardSToR:
         self._backend = os.getenv("backend")
         self._mesh = dist.ProcessMesh([0, 1], dim_names=["x"])
 
-    def run_test_case(self):
-        if self._backend == "cpu":
-            paddle.set_device("cpu")
-            place = paddle.CPUPlace()
-        elif self._backend == "gpu":
-            place = paddle.CUDAPlace(dist.get_rank())
-
-        dev_ctx = core.DeviceContext.create(place)
-        a = paddle.ones(self._shape)
-
-        input_tensor = dist.shard_tensor(
-            a, self._mesh, [dist.Shard(self._shard)]
-        )
-        out = dist.reshard(input_tensor, self._mesh, [dist.Replicate()])
-
-        assert np.equal(out.shape, out._local_shape).all()
-        assert np.equal(out.shape, input_tensor.shape).all()
-        np.testing.assert_equal(out.numpy(), a.numpy())
-
     def run_pir_test_case(self):
         paddle.enable_static()
         if self._backend == "cpu":
@@ -107,5 +88,4 @@ class TestReshardSToR:
 
 
 if __name__ == '__main__':
-    TestReshardSToR().run_test_case()
     TestReshardSToR().run_pir_test_case()
