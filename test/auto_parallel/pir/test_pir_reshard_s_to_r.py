@@ -40,5 +40,6 @@ class TestReshardSToR(test_base.CommunicationTestDistBase):
                 user_defined_envs=envs,
             )
 
+
 if __name__ == "__main__":
     unittest.main()

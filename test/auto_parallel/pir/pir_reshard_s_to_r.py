@@ -18,7 +18,6 @@ import numpy as np
 
 import paddle
 import paddle.distributed as dist
-from paddle.base import core
 from paddle.distributed.auto_parallel.static.pir_pass import (
     apply_reshard_pass,
 )
