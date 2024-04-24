@@ -20,7 +20,7 @@ import paddle
 import paddle.distributed as dist
 from paddle.base import core
 from paddle.distributed.auto_parallel.static.pir_pass import (
-    apply_reshard_pass_v2,
+    apply_reshard_pass,
 )
 
 
@@ -86,7 +86,7 @@ class TestReshardSToR:
                 reshard_tensor = paddle._C_ops.reshard(
                     input_tensor, self._mesh, [dist.Replicate()]
                 )
-            dist_program = apply_reshard_pass_v2(main_program)
+            dist_program = apply_reshard_pass(main_program)
         if self._shard == 1:
             np.testing.assert_equal(dist_program.num_ops(), 11)
             old_ops = [op.name() for op in main_program.global_block().ops]
