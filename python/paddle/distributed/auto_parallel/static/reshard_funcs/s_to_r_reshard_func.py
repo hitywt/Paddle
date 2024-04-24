@@ -95,3 +95,47 @@ class SToRReshardFunction(ReshardFunction):
             concat_value = paddle._pir_ops.concat(split_value, split_axis)
             return concat_value.get_defining_op()
         return allgather_value.get_defining_op()
+        
+class SToRReshardFunctionCrossMesh(ReshardFunction):
+    def is_suitable(self, src_dist_attr, dst_dist_attr):
+        if not is_shard(src_dist_attr):
+            return False
+
+        if not is_replicated(dst_dist_attr):
+            return False
+
+        in_mesh = src_dist_attr.process_mesh
+        out_mesh = dst_dist_attr.process_mesh
+
+        if in_mesh.ndim != 1:
+            return False
+        if out_mesh.ndim != 1:
+            return False
+        if in_mesh.shape != out_mesh.shape:
+            return False
+        if in_mesh == out_mesh:
+            return False
+        return True
+
+    def reshard(
+        self, program, op, src_dist_attr, dst_dist_attr, remove_op=True
+    ):
+        same_status_func = SameStatusReshardFunction()
+        tmp_dist_attr = paddle.base.libpaddle.pir.create_tensor_dist_attribute(
+            dst_dist_attr.process_mesh,
+            src_dist_attr.dims_mapping,
+            src_dist_attr.partial_status,
+        )
+        out, out_dist_attr = same_status_func.reshard(
+            program, op, src_dist_attr, tmp_dist_attr
+        )
+
+        curr_global_rank = paddle.distributed.get_rank()
+        if curr_global_rank in dst_dist_attr.process_mesh.process_ids:
+            s_to_r_func = SToRReshardFunction()
+            assert s_to_r_func.is_suitable(
+                out_dist_attr, dst_dist_attr
+            ), f"Invoke the p to r reshard function is not valid from {out.dist_attr()} to {dst_dist_attr}"
+            s_to_r_func.reshard(
+                program, out, out_dist_attr, dst_dist_attr, False
+            )

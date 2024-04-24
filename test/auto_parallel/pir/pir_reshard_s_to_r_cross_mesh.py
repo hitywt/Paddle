@@ -1,0 +1,91 @@
+# Copyright (c) 2023 PaddlePaddle Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import os
+
+import numpy as np
+
+import paddle
+import paddle.distributed as dist
+from paddle.base import core
+
+
+class TestReshardSToRCrossMesh:
+    def __init__(self):
+        self._shape = eval(os.getenv("shape"))
+        self._dtype = os.getenv("dtype")
+        self._seeds = eval(os.getenv("seeds"))
+        self._shard = eval(os.getenv("shard"))
+        self._backend = os.getenv("backend")
+
+        self._in_mesh = dist.ProcessMesh([0, 1], dim_names=["x"])
+        self._out_mesh = dist.ProcessMesh([1, 0], dim_names=["x"])
+
+    def run_pir_test_case(self):
+        paddle.enable_static()
+        if self._backend == "cpu":
+            paddle.set_device("cpu")
+            place = paddle.CPUPlace()
+        elif self._backend == "gpu":
+            place = paddle.CUDAPlace(dist.get_rank())
+
+        BATCH_SIZE = 2
+        SEQ_LEN = 4
+        HIDDEN_SIZE = 8
+        MP_SIZE = 2
+
+        with paddle.pir_utils.IrGuard():
+            main_program = paddle.base.Program()
+            with paddle.base.program_guard(main_program):
+                mesh = dist.ProcessMesh([0, 1], dim_names=['mp'])
+                input = paddle.static.data(
+                    name='input', shape=[BATCH_SIZE, SEQ_LEN, HIDDEN_SIZE]
+                )
+                w0 = paddle.pir.core.create_parameter(
+                    dtype="float32",
+                    shape=[HIDDEN_SIZE, HIDDEN_SIZE],
+                    name="w0",
+                    initializer=paddle.nn.initializer.Uniform(),
+                )
+
+                input_tensor = dist.shard_tensor(
+                    w0, self._mesh, [dist.Shard(self._shard)]
+                )
+
+                reshard_tensor = paddle._C_ops.reshard(
+                    input_tensor, self._mesh, [dist.Replicate()]
+                )
+            dist_program = apply_reshard_pass(main_program)
+        if self._shard == 1:
+            np.testing.assert_equal(dist_program.num_ops(), 11)
+            old_ops = [op.name() for op in main_program.global_block().ops]
+            new_ops = [op.name() for op in dist_program.global_block().ops]
+            assert 'pd_op.c_allgather' in new_ops
+            assert 'pd_op.split' in new_ops
+            assert 'pd_op.concat' in new_ops
+            assert 'pd_op.concat' in new_ops
+            assert 'dist_op.reshard' not in new_ops
+            assert 'dist_op.reshard' in old_ops
+        elif self._shard == 0:
+            np.testing.assert_equal(dist_program.num_ops(), 4)
+            old_ops = [op.name() for op in main_program.global_block().ops]
+            new_ops = [op.name() for op in dist_program.global_block().ops]
+            assert 'pd_op.c_allgather' in new_ops
+            assert 'dist_op.reshard' not in new_ops
+            assert 'dist_op.reshard' in old_ops
+
+
+
+if __name__ == '__main__':
+    TestReshardSToRCrossMesh().run_pir_test_case()
