@@ -120,7 +120,7 @@ void DistDialect::PrintAttribute(pir::Attribute attr, std::ostream &os) const {
                       dist_attr.process_mesh_attr().process_ids()) +
                   "],";
       }
-      os << "dims_maping:[" +
+      os << "dims_mapping:[" +
                 phi::distributed::auto_parallel::str_join(
                     dist_attr.dims_mapping()) +
                 "]";

@@ -13,9 +13,15 @@
 # limitations under the License.
 
 import paddle
+import numpy as np
 
 from ..process_group import new_process_group
 from .base_reshard_func import ReshardFunction, is_replicated, is_shard
+from .same_status_reshard_func import SameStatusReshardFunction
+from paddle.distributed.auto_parallel.placement_type import (
+    to_placements,
+)
+from paddle.distributed.auto_parallel.process_mesh import ProcessMesh
 
 class SToRReshardFunction(ReshardFunction):
     def is_suitable(self, src_dist_attr, dst_dist_attr):
@@ -37,7 +43,7 @@ class SToRReshardFunction(ReshardFunction):
         return True
 
     def reshard(
-        self, program, op, src_dist_attr, dst_dist_attr, remove_op=True
+        self, program, op, src_dist_attr, dst_dist_attr, reshard_op=True
     ):
         def get_split_axis_with_dims_mapping(dims_mapping):
             split_axis = {}
@@ -61,9 +67,10 @@ class SToRReshardFunction(ReshardFunction):
         )
         is_balanced_split = num_of_padding == 0
 
+        print(f'debug is_balanced_split: {is_balanced_split}')
         if is_balanced_split:
             new_value = self.reshard_s_to_r_with_padding(
-                program, op, split_axis, src_dist_attr.process_mesh.process_ids
+                program, op, split_axis, src_dist_attr, dst_dist_attr
             )
             return new_value, dst_dist_attr
         else:
@@ -71,29 +78,54 @@ class SToRReshardFunction(ReshardFunction):
             pass
 
     def reshard_s_to_r_with_padding(
-        self, program, op, split_axis, process_ids, padding_num=0
+        self, program, op, split_axis, src_dist_attr, dst_dist_attr, padding_num=0
     ):
-        num_of_process = len(process_ids)
+        print(f'debug reshard_s_to_r_with_padding')
+        src_mesh = src_dist_attr.process_mesh
+        num_of_process = len(src_mesh.process_ids)
         dtype = op.operand_source(0).dtype
 
         paddle.pir.set_insertion_point(op)
-        group = new_process_group(process_ids)
+        group = new_process_group(src_mesh.process_ids)
         op_value = op.operand_source(0)
         allgather_value = paddle._pir_ops.c_allgather(
             op_value, group.id, num_of_process, False
         )
+
+        dst_mesh = dst_dist_attr.process_mesh
+        mesh = ProcessMesh(shape=dst_mesh.shape, process_ids=dst_mesh.process_ids)
+        placements = to_placements(dst_dist_attr.dims_mapping, mesh)
+        allgather_value = paddle.distributed.auto_parallel.api.dtensor_from_local(allgather_value, mesh, placements)
+
+        # set op_dist_attr
+        new_dist_attr = paddle.base.libpaddle.pir.create_tensor_dist_attribute(
+            dst_dist_attr.process_mesh,
+            [-1] * len(dst_dist_attr.dims_mapping),
+            dst_dist_attr.partial_status,
+        )
+        allgather_value.get_defining_op().dist_attr = (
+            paddle.base.libpaddle.pir.create_op_dist_attribute(
+                src_mesh, [src_dist_attr], [new_dist_attr]
+            )
+        )
+
         op.result(0).replace_all_uses_with(allgather_value)
         program.global_block().remove_op(op)
 
+        print(f'debug program: {program}')
         if split_axis != 0 or padding_num != 0:
-            sections = num_of_process * [op_value.shape[0]]
+            #sections = num_of_process * [op_value.shape[0]]
             allgather_op = allgather_value.get_defining_op()
             paddle.pir.set_insertion_point_after(allgather_op)
-            split_value = paddle._pir_ops.split(
-                allgather_op.result(0), sections, 0
+            split_value = paddle._pir_ops.split_with_num(
+                allgather_op.result(0), num_of_process, 0
             )
             concat_value = paddle._pir_ops.concat(split_value, split_axis)
+            print(f'debug 2')
             return concat_value.get_defining_op()
+        else: 
+            print(f'debug 1')
+        print(f'debug finish s_to_r reshard')
         return allgather_value.get_defining_op()
         
 class SToRReshardFunctionCrossMesh(ReshardFunction):
@@ -107,35 +139,42 @@ class SToRReshardFunctionCrossMesh(ReshardFunction):
         in_mesh = src_dist_attr.process_mesh
         out_mesh = dst_dist_attr.process_mesh
 
-        if in_mesh.ndim != 1:
+        if (
+            in_mesh.ndim != 1
+            or out_mesh.ndim != 1
+            or in_mesh.shape != out_mesh.shape
+        ):
             return False
-        if out_mesh.ndim != 1:
-            return False
-        if in_mesh.shape != out_mesh.shape:
-            return False
+
         if in_mesh == out_mesh:
             return False
+
         return True
 
-    def reshard(
-        self, program, op, src_dist_attr, dst_dist_attr, remove_op=True
-    ):
+    def reshard(self, program, op, src_dist_attr, dst_dist_attr):
+        print(f'begin s_to_r reshard cross_mesh')        
         same_status_func = SameStatusReshardFunction()
         tmp_dist_attr = paddle.base.libpaddle.pir.create_tensor_dist_attribute(
             dst_dist_attr.process_mesh,
             src_dist_attr.dims_mapping,
             src_dist_attr.partial_status,
         )
-        out, out_dist_attr = same_status_func.reshard(
+        pre_op, out_dist_attr = same_status_func.reshard(
             program, op, src_dist_attr, tmp_dist_attr
         )
+
+        print(f'debug after s_s program: {program}')
+        if pre_op is None:
+            return None, out_dist_attr
 
         curr_global_rank = paddle.distributed.get_rank()
         if curr_global_rank in dst_dist_attr.process_mesh.process_ids:
             s_to_r_func = SToRReshardFunction()
             assert s_to_r_func.is_suitable(
                 out_dist_attr, dst_dist_attr
-            ), f"Invoke the p to r reshard function is not valid from {out.dist_attr()} to {dst_dist_attr}"
+            ), f"Invoke the p to r reshard function is not valid from {pre_op.dist_attr()} to {dst_dist_attr}"
+            print(f'debug s_to_r curr_global_rank: {curr_global_rank}')
             s_to_r_func.reshard(
-                program, out, out_dist_attr, dst_dist_attr, False
+                program, pre_op, out_dist_attr, dst_dist_attr, False
             )
+        print(f'debug after s_to_r program: {program}')

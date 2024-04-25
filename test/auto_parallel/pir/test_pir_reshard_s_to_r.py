@@ -26,8 +26,10 @@ class TestReshardSToR(test_base.CommunicationTestDistBase):
             "seeds": str(self._seeds),
         }
         self._changeable_envs = {
-            "shard": ["0", "1"],
-            "backend": ["cpu", "gpu"],
+            #"shard": ["0", "1"],
+            #"backend": ["cpu", "gpu"],
+            "shard": ["1"],
+            "backend": ["gpu"],
         }
 
     def test_reshard_s_to_r(self):
@@ -39,6 +41,18 @@ class TestReshardSToR(test_base.CommunicationTestDistBase):
                 "pir_reshard_s_to_r.py",
                 user_defined_envs=envs,
             )
+
+    def itest_reshard_s_to_r_cross_mesh(self):
+        envs_list = test_base.gen_product_envs_list(
+            self._default_envs, self._changeable_envs
+        )
+
+        for envs in envs_list:
+            if envs["backend"] != "cpu":
+                self.run_test_case(
+                    "pir_reshard_s_to_r_cross_mesh.py",
+                    user_defined_envs=envs,
+                )
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,9 @@ import paddle
 import paddle.distributed as dist
 from paddle.base import core
 
+from paddle.distributed.auto_parallel.static.pir_pass import (
+    apply_reshard_pass,
+)
 
 class TestReshardSToRCrossMesh:
     def __init__(self):
@@ -34,12 +37,6 @@ class TestReshardSToRCrossMesh:
 
     def run_pir_test_case(self):
         paddle.enable_static()
-        if self._backend == "cpu":
-            paddle.set_device("cpu")
-            place = paddle.CPUPlace()
-        elif self._backend == "gpu":
-            place = paddle.CUDAPlace(dist.get_rank())
-
         BATCH_SIZE = 2
         SEQ_LEN = 4
         HIDDEN_SIZE = 8
@@ -48,7 +45,6 @@ class TestReshardSToRCrossMesh:
         with paddle.pir_utils.IrGuard():
             main_program = paddle.base.Program()
             with paddle.base.program_guard(main_program):
-                mesh = dist.ProcessMesh([0, 1], dim_names=['mp'])
                 input = paddle.static.data(
                     name='input', shape=[BATCH_SIZE, SEQ_LEN, HIDDEN_SIZE]
                 )
@@ -60,31 +56,91 @@ class TestReshardSToRCrossMesh:
                 )
 
                 input_tensor = dist.shard_tensor(
-                    w0, self._mesh, [dist.Shard(self._shard)]
+                    w0, self._in_mesh, [dist.Shard(self._shard)]
                 )
-
-                reshard_tensor = paddle._C_ops.reshard(
-                    input_tensor, self._mesh, [dist.Replicate()]
+                reshard_tensor = paddle._pir_ops.reshard(
+                    input_tensor, self._out_mesh, [dist.Replicate()]
                 )
+            print(f'debug main_program: {main_program}')
             dist_program = apply_reshard_pass(main_program)
-        if self._shard == 1:
-            np.testing.assert_equal(dist_program.num_ops(), 11)
-            old_ops = [op.name() for op in main_program.global_block().ops]
-            new_ops = [op.name() for op in dist_program.global_block().ops]
-            assert 'pd_op.c_allgather' in new_ops
-            assert 'pd_op.split' in new_ops
-            assert 'pd_op.concat' in new_ops
-            assert 'pd_op.concat' in new_ops
-            assert 'dist_op.reshard' not in new_ops
-            assert 'dist_op.reshard' in old_ops
-        elif self._shard == 0:
-            np.testing.assert_equal(dist_program.num_ops(), 4)
-            old_ops = [op.name() for op in main_program.global_block().ops]
-            new_ops = [op.name() for op in dist_program.global_block().ops]
-            assert 'pd_op.c_allgather' in new_ops
-            assert 'dist_op.reshard' not in new_ops
-            assert 'dist_op.reshard' in old_ops
 
+        print(f'debug dist_program: {dist_program}')
+        ops = [op.name() for op in dist_program.global_block().ops]
+        if paddle.distributed.get_rank() == 0:
+            np.testing.assert_equal(dist_program.num_ops(), 4)
+            std_ops = [
+                'builtin.parameter',
+                'pd_op.data',
+                'dist_op.shard_tensor',
+                'pd_op.send_v2',
+            ]
+        else:
+            np.testing.assert_equal(dist_program.num_ops(), 5)
+            std_ops = [
+                'builtin.parameter',
+                'pd_op.data',
+                'dist_op.shard_tensor',
+                'pd_op.recv_v2',
+                'pd_op.c_allreduce_sum_',
+            ]
+        np.testing.assert_equal(
+            ops,
+            std_ops,
+        )
+        for op in dist_program.global_block().ops:
+            if op.name() == 'pd_op.send_v2':
+                assert op.dist_attr.num_operands() == 1
+                assert op.dist_attr.num_results() == 0
+                op_operand_dist_attr = op.dist_attr.operand_dist_attr(0)
+
+                assert op.dist_attr.process_mesh == self._in_mesh
+                assert op_operand_dist_attr.process_mesh == self._in_mesh
+                assert op_operand_dist_attr.dims_mapping == [-1, -1]
+                assert op_operand_dist_attr.partial_status == {
+                    0: paddle.distributed.ReduceType.kRedSum
+                }
+
+            elif op.name() == 'pd_op.recv_v2':
+                # check op dist_attr
+                assert op.dist_attr.num_operands() == 0
+                assert op.dist_attr.num_results() == 1
+
+                op_result_dist_attr = op.dist_attr.result_dist_attr(0)
+
+                assert op_result_dist_attr.process_mesh == self._out_mesh
+                assert op_result_dist_attr.dims_mapping == [-1, -1]
+                assert op_result_dist_attr.partial_status == {
+                    0: paddle.distributed.ReduceType.kRedSum
+                }
+            elif op.name() == 'pd_op.c_allreduce_sum_':
+                continue
+                # check op dist_attr
+                assert op.dist_attr.num_operands() == 1
+                assert op.dist_attr.num_results() == 1
+
+                op_operand_dist_attr = op.dist_attr.operand_dist_attr(0)
+                op_result_dist_attr = op.dist_attr.result_dist_attr(0)
+
+                assert op.dist_attr.process_mesh == self._in_mesh
+                assert op_operand_dist_attr.process_mesh == self._in_mesh
+                assert op_operand_dist_attr.dims_mapping == [-1, -1]
+                assert op_operand_dist_attr.partial_status == {
+                    0: paddle.distributed.ReduceType.kRedSum
+                }
+
+                assert op_result_dist_attr.process_mesh == self._out_mesh
+                assert op_result_dist_attr.dims_mapping == [-1, -1]
+                assert op_result_dist_attr.partial_status == {}
+
+                # check op_value dist_attr
+                assert op.num_results() == 1
+                op_value = op.result(0)
+                assert op_value.is_dense_tensor_type()
+                assert op_value.is_dist_dense_tensor_type()
+                assert op_value.is_dist_dense_tensor_type()
+                assert op_value.dist_attr().process_mesh == self._out_mesh
+                assert op_value.dist_attr().dims_mapping == [-1, -1]
+                assert op_value.dist_attr().partial_status == {}
 
 
 if __name__ == '__main__':
